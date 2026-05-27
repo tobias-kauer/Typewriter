@@ -3,13 +3,12 @@
 
 import sys
 import time
+import argparse
 
 try:
     import gpiod
 except ImportError:
-    print("Missing libgpiod Python support.")
-    print("Install it on Raspberry Pi OS with: sudo apt install python3-libgpiod")
-    sys.exit(1)
+    gpiod = None
 
 GPIO_CHIP = "gpiochip0"
 
@@ -66,7 +65,16 @@ def set_mux_channel(s0, s1, s2, s3, channel):
 def disable_muxes():
     ROW_EN_LINE.set_value(1)
     COL_EN_LINE.set_value(1)
-
+    # Try to use libgpiod; if unavailable or chip missing, fall back to dummy lines
+    if gpiod is None:
+        print("libgpiod Python module not available — running in simulation mode.")
+        chip = None
+    else:
+        try:
+            chip = gpiod.Chip(GPIO_CHIP)
+        except (FileNotFoundError, OSError):
+            print("GPIO chip not found — running in simulation mode.")
+            chip = None
 
 def enable_muxes():
     ROW_EN_LINE.set_value(0)
