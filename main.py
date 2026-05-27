@@ -4,11 +4,150 @@
 import sys
 import time
 
-try:
-    import RPi.GPIO as GPIO
-except ImportError:
-    print("RPi.GPIO is required. Install it with: sudo apt install python3-rpi.gpio")
-    sys.exit(1)
+
+class GPIOBackendError(RuntimeError):
+    pass
+
+
+class GPIOBase:
+    BCM = None
+    IN = None
+    OUT = None
+    HIGH = 1
+    LOW = 0
+    PUD_OFF = None
+    PUD_DOWN = None
+    PUD_UP = None
+
+    def setmode(self, mode):
+        raise NotImplementedError
+
+    def setwarnings(self, flag):
+        raise NotImplementedError
+
+    def setup(self, pin, mode, initial=None, pull_up_down=None):
+        raise NotImplementedError
+
+    def output(self, pin, value):
+        raise NotImplementedError
+
+    def input(self, pin):
+        raise NotImplementedError
+
+    def cleanup(self):
+        raise NotImplementedError
+
+
+class RPiGPIOBackend(GPIOBase):
+    def __init__(self):
+        try:
+            import RPi.GPIO as real_gpio
+        except ImportError as exc:
+            raise GPIOBackendError("RPi.GPIO is not installed") from exc
+
+        self.gpio = real_gpio
+        self.BCM = real_gpio.BCM
+        self.IN = real_gpio.IN
+        self.OUT = real_gpio.OUT
+        self.HIGH = real_gpio.HIGH
+        self.LOW = real_gpio.LOW
+        self.PUD_OFF = real_gpio.PUD_OFF
+        self.PUD_DOWN = real_gpio.PUD_DOWN
+        self.PUD_UP = real_gpio.PUD_UP
+
+    def setmode(self, mode):
+        self.gpio.setmode(mode)
+
+    def setwarnings(self, flag):
+        self.gpio.setwarnings(flag)
+
+    def setup(self, pin, mode, initial=None, pull_up_down=None):
+        if pull_up_down is not None:
+            self.gpio.setup(pin, mode, pull_up_down=pull_up_down)
+        elif initial is not None:
+            self.gpio.setup(pin, mode, initial=initial)
+        else:
+            self.gpio.setup(pin, mode)
+
+    def output(self, pin, value):
+        self.gpio.output(pin, value)
+
+    def input(self, pin):
+        return self.gpio.input(pin)
+
+    def cleanup(self):
+        self.gpio.cleanup()
+
+
+class PigpioBackend(GPIOBase):
+    def __init__(self):
+        try:
+            import pigpio
+        except ImportError as exc:
+            raise GPIOBackendError("pigpio Python package is not installed") from exc
+
+        self.pigpio = pigpio
+        self.pi = pigpio.pi()
+        if not self.pi.connected:
+            raise GPIOBackendError("pigpio daemon is not running; start it with `sudo pigpiod`")
+
+        self.BCM = "BCM"
+        self.IN = pigpio.INPUT
+        self.OUT = pigpio.OUTPUT
+        self.HIGH = 1
+        self.LOW = 0
+        self.PUD_OFF = pigpio.PUD_OFF
+        self.PUD_DOWN = pigpio.PUD_DOWN
+        self.PUD_UP = pigpio.PUD_UP
+
+    def setmode(self, mode):
+        if mode != self.BCM:
+            raise ValueError("Pigpio backend only supports BCM numbering")
+
+    def setwarnings(self, flag):
+        pass
+
+    def setup(self, pin, mode, initial=None, pull_up_down=None):
+        self.pi.set_mode(pin, mode)
+        if pull_up_down is not None:
+            self.pi.set_pull_up_down(pin, pull_up_down)
+        if initial is not None and mode == self.OUT:
+            self.pi.write(pin, initial)
+
+    def output(self, pin, value):
+        self.pi.write(pin, value)
+
+    def input(self, pin):
+        return self.pi.read(pin)
+
+    def cleanup(self):
+        self.pi.stop()
+
+
+def create_gpio_driver():
+    try:
+        backend = RPiGPIOBackend()
+        backend.setmode(backend.BCM)
+        backend.setwarnings(False)
+        return backend
+    except GPIOBackendError as exc:
+        print(f"RPi.GPIO backend unavailable: {exc}")
+
+    try:
+        backend = PigpioBackend()
+        backend.setmode(backend.BCM)
+        backend.setwarnings(False)
+        print("Using pigpio backend")
+        return backend
+    except GPIOBackendError as exc:
+        print(f"pigpio backend unavailable: {exc}")
+
+    raise SystemExit(
+        "No supported GPIO backend available. Install RPi.GPIO or pigpio and run on Raspberry Pi with the correct permissions."
+    )
+
+
+GPIO = create_gpio_driver()
 
 # Raspberry Pi BCM pin numbers for the row and column muxes.
 # Replace these with the GPIO pins you actually wired on your Pi.
@@ -109,8 +248,20 @@ def setup_gpio():
     GPIO.setmode(GPIO.BCM)
     GPIO.setwarnings(False)
 
-    for pin in [ROW_EN, ROW_S0, ROW_S1, ROW_S2, ROW_S3, ROW_SIG,
-                COL_EN, COL_S0, COL_S1, COL_S2, COL_S3, COL_SIG]:
+    for pin in [
+        ROW_EN,
+        ROW_S0,
+        ROW_S1,
+        ROW_S2,
+        ROW_S3,
+        ROW_SIG,
+        COL_EN,
+        COL_S0,
+        COL_S1,
+        COL_S2,
+        COL_S3,
+        COL_SIG,
+    ]:
         GPIO.setup(pin, GPIO.OUT, initial=GPIO.LOW)
 
     disable_muxes()

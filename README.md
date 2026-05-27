@@ -1,6 +1,6 @@
 # Raspberry Pi Keyboard Matrix Scanner
 
-This project provides a Python-based scanner for a keyboard matrix connected through two 16-channel multiplexers. It is intended for Raspberry Pi 5 hardware and uses `RPi.GPIO` to control the row and column selector pins.
+This project provides a Python keyboard matrix scanner for Raspberry Pi using two 16-channel multiplexers. It is designed to work on modern Raspberry Pi models, including Raspberry Pi 5.
 
 ## Files
 
@@ -11,12 +11,20 @@ This project provides a Python-based scanner for a keyboard matrix connected thr
 
 - Raspberry Pi running Raspberry Pi OS
 - Python 3.11 or newer
-- `RPi.GPIO` installed
+- `RPi.GPIO` or `pigpio`
 
-Install dependencies:
+Install Python dependencies:
 
 ```bash
 python3 -m pip install -r requirements.txt
+```
+
+Install the pigpio daemon if using the `pigpio` backend:
+
+```bash
+sudo apt update
+sudo apt install pigpio python3-pigpio
+sudo systemctl enable --now pigpiod
 ```
 
 ## GPIO Wiring
@@ -49,7 +57,7 @@ Run the scanner with:
 python3 main.py
 ```
 
-The program prints detected connections to the console, for example:
+The program prints detected connections to the console:
 
 ```text
 Scan start
@@ -60,7 +68,18 @@ Scan end
 
 Stop the scan with `Ctrl+C`.
 
-## Notes
+## Raspberry Pi 5 Notes
 
-- The script configures the row signal as output and the column signal as input with pull-up, then checks for LOW on the selected column.
-- Ensure your multiplexer modules are compatible with the GPIO voltage levels on the Raspberry Pi.
+- On Raspberry Pi 5, `RPi.GPIO` may not initialize correctly in some environments.
+- This script tries `RPi.GPIO` first and then falls back to `pigpio` if `RPi.GPIO` fails.
+- If pigpio is used, ensure the pigpio daemon is running.
+
+## Troubleshooting
+
+If the script reports "Cannot determine SOC peripheral base address", install and use the `pigpio` backend:
+
+```bash
+sudo apt install pigpio python3-pigpio
+sudo systemctl enable --now pigpiod
+python3 main.py
+```
