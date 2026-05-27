@@ -24,6 +24,17 @@ Install the pigpio daemon if using the `pigpio` backend:
 ```bash
 sudo apt update
 sudo apt install pigpio python3-pigpio
+```
+
+Start the daemon manually if the service unit is unavailable:
+
+```bash
+sudo pigpiod
+```
+
+If your system has the service unit, enable it with:
+
+```bash
 sudo systemctl enable --now pigpiod
 ```
 

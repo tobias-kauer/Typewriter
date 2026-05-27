@@ -46,6 +46,7 @@ class RPiGPIOBackend(GPIOBase):
             raise GPIOBackendError("RPi.GPIO is not installed") from exc
 
         self.gpio = real_gpio
+        self.backend_name = "RPi.GPIO"
         self.BCM = real_gpio.BCM
         self.IN = real_gpio.IN
         self.OUT = real_gpio.OUT
@@ -91,6 +92,7 @@ class PigpioBackend(GPIOBase):
         if not self.pi.connected:
             raise GPIOBackendError("pigpio daemon is not running; start it with `sudo pigpiod`")
 
+        self.backend_name = "pigpio"
         self.BCM = "BCM"
         self.IN = pigpio.INPUT
         self.OUT = pigpio.OUTPUT
@@ -124,7 +126,18 @@ class PigpioBackend(GPIOBase):
         self.pi.stop()
 
 
-def create_gpio_driver():
+def create_gpio_driver(prefer_pigpio=False):
+    if prefer_pigpio:
+        try:
+            backend = PigpioBackend()
+            backend.setmode(backend.BCM)
+            backend.setwarnings(False)
+            print("Using pigpio backend")
+            return backend
+        except GPIOBackendError as exc:
+            print(f"pigpio backend unavailable: {exc}")
+            raise
+
     try:
         backend = RPiGPIOBackend()
         backend.setmode(backend.BCM)
@@ -245,24 +258,35 @@ def scan_keyboard_matrix(rows, cols):
 
 
 def setup_gpio():
+    global GPIO
+
     GPIO.setmode(GPIO.BCM)
     GPIO.setwarnings(False)
 
-    for pin in [
-        ROW_EN,
-        ROW_S0,
-        ROW_S1,
-        ROW_S2,
-        ROW_S3,
-        ROW_SIG,
-        COL_EN,
-        COL_S0,
-        COL_S1,
-        COL_S2,
-        COL_S3,
-        COL_SIG,
-    ]:
-        GPIO.setup(pin, GPIO.OUT, initial=GPIO.LOW)
+    try:
+        for pin in [
+            ROW_EN,
+            ROW_S0,
+            ROW_S1,
+            ROW_S2,
+            ROW_S3,
+            ROW_SIG,
+            COL_EN,
+            COL_S0,
+            COL_S1,
+            COL_S2,
+            COL_S3,
+            COL_SIG,
+        ]:
+            GPIO.setup(pin, GPIO.OUT, initial=GPIO.LOW)
+    except Exception as exc:
+        if getattr(GPIO, "backend_name", "") == "RPi.GPIO":
+            print(f"RPi.GPIO runtime failure: {exc}")
+            GPIO.cleanup()
+            GPIO = create_gpio_driver(prefer_pigpio=True)
+            setup_gpio()
+            return
+        raise
 
     disable_muxes()
     float_signal_pins()
