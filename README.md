@@ -1,55 +1,55 @@
 # Raspberry Pi Keyboard Matrix Scanner
 
-This project provides a Python keyboard matrix scanner for Raspberry Pi using two 16-channel multiplexers. It is designed to work on modern Raspberry Pi models, including Raspberry Pi 5.
+A minimal Raspberry Pi keyboard matrix scanner using `libgpiod`.
 
 ## Files
 
-- `main.py` — Raspberry Pi keyboard matrix scanning program.
+- `main.py` — simple Pi matrix scan program.
 - `requirements.txt` — Python dependency list.
 
 ## Requirements
 
 - Raspberry Pi running Raspberry Pi OS
 - Python 3.11 or newer
-- `RPi.GPIO` or `pigpio`
 
-Install Python dependencies:
+This project uses `libgpiod` for GPIO access. The recommended system packages and Python packages are listed below.
 
-```bash
-python3 -m pip install -r requirements.txt
-```
+### System packages (apt)
 
-Install the pigpio daemon if using the `pigpio` backend:
+Install the OS-level GPIO packages:
 
 ```bash
 sudo apt update
-sudo apt install pigpio python3-pigpio
+sudo apt install python3-libgpiod pigpio python3-pigpio python3-rpi.gpio
 ```
 
-Start the daemon manually if the service unit is unavailable:
+Start the pigpio daemon if you plan to use `pigpio`:
+
+```bash
+sudo pigpiod || sudo systemctl enable --now pigpiod
+```
+
+If the service unit is not available, run the daemon manually:
 
 ```bash
 sudo pigpiod
 ```
 
-If your system has the service unit, enable it with:
+### Python packages (pip)
+
+Install the Python runtime dependencies (use a virtual environment if desired):
 
 ```bash
-sudo systemctl enable --now pigpiod
+python3 -m pip install -r requirements.txt
 ```
 
-## GPIO Wiring
+## Wiring
 
-Update the BCM pin constants in `main.py` to match your wiring before running:
-
-- `ROW_EN`, `ROW_S0`, `ROW_S1`, `ROW_S2`, `ROW_S3`, `ROW_SIG`
-- `COL_EN`, `COL_S0`, `COL_S1`, `COL_S2`, `COL_S3`, `COL_SIG`
-
-These pins correspond to the mux enable and select lines for the row and column multiplexers.
+Update the BCM pin constants in `main.py` if your wiring differs.
 
 ## Configuration
 
-Control the scan dimensions in `main.py`:
+Update the scan size in `main.py`:
 
 ```python
 ROW_COUNT = 16
@@ -58,39 +58,16 @@ TARGET_ROWS = list(range(ROW_COUNT))
 TARGET_COLS = list(range(COL_COUNT))
 ```
 
-Modify `TARGET_ROWS` and `TARGET_COLS` to scan only a subset of the matrix.
-
 ## Usage
 
-Run the scanner with:
+Run the scanner:
 
 ```bash
 python3 main.py
 ```
 
-The program prints detected connections to the console:
+The program prints any detected connection rows and columns.
 
-```text
-Scan start
-row=0, col=0
-row=1, col=3
-Scan end
-```
+## Notes
 
-Stop the scan with `Ctrl+C`.
-
-## Raspberry Pi 5 Notes
-
-- On Raspberry Pi 5, `RPi.GPIO` may not initialize correctly in some environments.
-- This script tries `RPi.GPIO` first and then falls back to `pigpio` if `RPi.GPIO` fails.
-- If pigpio is used, ensure the pigpio daemon is running.
-
-## Troubleshooting
-
-If the script reports "Cannot determine SOC peripheral base address", install and use the `pigpio` backend:
-
-```bash
-sudo apt install pigpio python3-pigpio
-sudo systemctl enable --now pigpiod
-python3 main.py
-```
+This script uses direct GPIO access through `libgpiod` and avoids the older `RPi.GPIO` and `pigpio` backends.

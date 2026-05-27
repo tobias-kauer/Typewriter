@@ -1,2 +1,3 @@
+gpiod
 RPi.GPIO>=0.7.0
 pigpio>=1.78
