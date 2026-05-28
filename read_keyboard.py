@@ -27,6 +27,7 @@ TARGET_ROWS = range(ROW_COUNT)
 TARGET_COLS = range(COL_COUNT)
 
 DEBOUNCE_DELAY = 0.00002
+SAME_PRESS_DELAY = 0.25
 
 KEYMAP = (
     ("i", "z", "-", "", "KEY_MODE", "7", "q", "a"),
@@ -49,6 +50,8 @@ KEYMAP_SHIFT = (
     ("L", "\"", "", "", "", "=", "T", "D"),
     ("J", "Y", "", "", "", "(", "R", "B"),
 )
+
+ACTIVE_PRESSES = {}
 
 
 def set_mux_channel(s0, s1, s2, s3, channel):
@@ -102,7 +105,66 @@ def get_key(row, col, shifted=False):
 
 
 def shift_is_pressed():
-    return SHIFT_LINE.value == 1
+    return SHIFT_LINE.value == 0
+
+
+def is_printable_key(key):
+    return key is not None and not key.startswith("KEY_")
+
+
+def scan_pressed_positions(rows, cols):
+    pressed_positions = []
+
+    enable_muxes()
+
+    try:
+        for row in rows:
+            set_mux_channel(ROW_S0_LINE, ROW_S1_LINE, ROW_S2_LINE, ROW_S3_LINE, row)
+            time.sleep(DEBOUNCE_DELAY)
+
+            for col in cols:
+                set_mux_channel(COL_S0_LINE, COL_S1_LINE, COL_S2_LINE, COL_S3_LINE, col)
+                time.sleep(DEBOUNCE_DELAY)
+
+                if COL_SIG_LINE.value == 1:
+                    pressed_positions.append((row, col))
+
+    finally:
+        disable_muxes()
+
+    return pressed_positions
+
+
+def get_new_press_positions(rows, cols):
+    now = time.monotonic()
+    pressed_positions = scan_pressed_positions(rows, cols)
+    pressed_set = set(pressed_positions)
+    new_positions = []
+
+    for position in pressed_positions:
+        if position not in ACTIVE_PRESSES:
+            new_positions.append(position)
+
+        ACTIVE_PRESSES[position] = now
+
+    for position, last_seen in list(ACTIVE_PRESSES.items()):
+        if position not in pressed_set and now - last_seen >= SAME_PRESS_DELAY:
+            del ACTIVE_PRESSES[position]
+
+    return new_positions
+
+
+def read_letters_as_string(rows=TARGET_ROWS, cols=TARGET_COLS):
+    shifted = shift_is_pressed()
+    letters = []
+
+    for row, col in get_new_press_positions(rows, cols):
+        key = get_key(row, col, shifted)
+
+        if is_printable_key(key):
+            letters.append(key)
+
+    return "".join(letters)
 
 
 def print_key_for_connection(row, col, shifted=False):
@@ -116,22 +178,10 @@ def print_key_for_connection(row, col, shifted=False):
 
 
 def scan_connections(rows, cols):
-    enable_muxes()
+    shifted = shift_is_pressed()
 
-    try:
-        for row in rows:
-            set_mux_channel(ROW_S0_LINE, ROW_S1_LINE, ROW_S2_LINE, ROW_S3_LINE, row)
-            time.sleep(DEBOUNCE_DELAY)
-
-            for col in cols:
-                set_mux_channel(COL_S0_LINE, COL_S1_LINE, COL_S2_LINE, COL_S3_LINE, col)
-                time.sleep(DEBOUNCE_DELAY)
-
-                if COL_SIG_LINE.value == 1:
-                    print_key_for_connection(row, col, shifted=shift_is_pressed())
-
-    finally:
-        disable_muxes()
+    for row, col in get_new_press_positions(rows, cols):
+        print_key_for_connection(row, col, shifted=shifted)
 
 
 def setup_gpio():
