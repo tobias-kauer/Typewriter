@@ -18,6 +18,8 @@ COL_S2 = 10
 COL_S3 = 9
 COL_SIG = 11
 
+SHIFT_PIN = 13
+
 ROW_COUNT = 8
 COL_COUNT = 8
 
@@ -84,15 +86,23 @@ def has_connection(row, col):
 
 
 def get_key(row, col, shifted=False):
-    keymap = KEYMAP_SHIFT if shifted else KEYMAP
-
-    if row < 0 or row >= len(keymap):
+    if row < 0 or row >= len(KEYMAP):
         return None
 
-    if col < 0 or col >= len(keymap[row]):
+    if col < 0 or col >= len(KEYMAP[row]):
         return None
 
-    return keymap[row][col] or None
+    if shifted:
+        shift_key = KEYMAP_SHIFT[row][col]
+
+        if shift_key:
+            return shift_key
+
+    return KEYMAP[row][col] or None
+
+
+def shift_is_pressed():
+    return SHIFT_LINE.value == 0
 
 
 def print_key_for_connection(row, col, shifted=False):
@@ -118,7 +128,7 @@ def scan_connections(rows, cols):
                 time.sleep(DEBOUNCE_DELAY)
 
                 if COL_SIG_LINE.value == 1:
-                    print_key_for_connection(row, col)
+                    print_key_for_connection(row, col, shifted=shift_is_pressed())
 
     finally:
         disable_muxes()
@@ -127,7 +137,7 @@ def scan_connections(rows, cols):
 def setup_gpio():
     global ROW_EN_LINE, ROW_S0_LINE, ROW_S1_LINE, ROW_S2_LINE, ROW_S3_LINE
     global COL_EN_LINE, COL_S0_LINE, COL_S1_LINE, COL_S2_LINE, COL_S3_LINE
-    global ROW_SIG_LINE, COL_SIG_LINE
+    global ROW_SIG_LINE, COL_SIG_LINE, SHIFT_LINE
 
     ROW_EN_LINE = OutputDevice(ROW_EN, initial_value=True)
     ROW_S0_LINE = OutputDevice(ROW_S0, initial_value=False)
@@ -143,11 +153,15 @@ def setup_gpio():
     COL_S3_LINE = OutputDevice(COL_S3, initial_value=False)
 
     COL_SIG_LINE = InputDevice(COL_SIG, pull_up=True)
+    SHIFT_LINE = InputDevice(SHIFT_PIN, pull_up=True)
 
     disable_muxes()
     ROW_SIG_LINE.off()
 
-    print(f"GPIO ready. Fast-scanning {ROW_COUNT} rows x {COL_COUNT} columns...")
+    print(
+        f"GPIO ready. Fast-scanning {ROW_COUNT} rows x {COL_COUNT} columns..."
+        f" Shift on GPIO {SHIFT_PIN} is active when grounded."
+    )
 
 
 def cleanup_gpio():
