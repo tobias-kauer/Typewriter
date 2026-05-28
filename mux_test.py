@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Test program: check row 0, column 0 connection every second."""
+"""Fast test program: continuously scan all row/column mux channels."""
 
 import time
 from gpiozero import OutputDevice, InputDevice
@@ -17,6 +17,12 @@ COL_S1 = 22
 COL_S2 = 10
 COL_S3 = 9
 COL_SIG = 11
+
+ROW_COUNT = 16
+COL_COUNT = 16
+
+TARGET_ROWS = range(ROW_COUNT)
+TARGET_COLS = range(COL_COUNT)
 
 DEBOUNCE_DELAY = 0.00002
 
@@ -55,6 +61,25 @@ def has_connection(row, col):
     return connected
 
 
+def scan_connections(rows, cols):
+    enable_muxes()
+
+    try:
+        for row in rows:
+            set_mux_channel(ROW_S0_LINE, ROW_S1_LINE, ROW_S2_LINE, ROW_S3_LINE, row)
+            time.sleep(DEBOUNCE_DELAY)
+
+            for col in cols:
+                set_mux_channel(COL_S0_LINE, COL_S1_LINE, COL_S2_LINE, COL_S3_LINE, col)
+                time.sleep(DEBOUNCE_DELAY)
+
+                if COL_SIG_LINE.value == 1:
+                    print(f"CONNECTED row={row}, col={col}")
+
+    finally:
+        disable_muxes()
+
+
 def setup_gpio():
     global ROW_EN_LINE, ROW_S0_LINE, ROW_S1_LINE, ROW_S2_LINE, ROW_S3_LINE
     global COL_EN_LINE, COL_S0_LINE, COL_S1_LINE, COL_S2_LINE, COL_S3_LINE
@@ -78,7 +103,7 @@ def setup_gpio():
     disable_muxes()
     ROW_SIG_LINE.off()
 
-    print("GPIO ready. Testing row=0, col=0...")
+    print(f"GPIO ready. Fast-scanning {ROW_COUNT} rows x {COL_COUNT} columns...")
 
 
 def cleanup_gpio():
@@ -91,10 +116,7 @@ def main():
 
     try:
         while True:
-            connected = has_connection(0, 0)
-            status = "CONNECTED" if connected else "NOT CONNECTED"
-            print(f"row=0, col=0: {status}")
-            time.sleep(1.0)
+            scan_connections(TARGET_ROWS, TARGET_COLS)
 
     except KeyboardInterrupt:
         print("\nStopped by user")
