@@ -48,7 +48,7 @@ def has_connection(row, col):
     enable_muxes()
     time.sleep(DEBOUNCE_DELAY)
 
-    connected = COL_SIG_LINE.value == 0
+    connected = COL_SIG_LINE.value == 1
 
     disable_muxes()
 
