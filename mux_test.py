@@ -102,7 +102,7 @@ def get_key(row, col, shifted=False):
 
 
 def shift_is_pressed():
-    return SHIFT_LINE.value == 0
+    return SHIFT_LINE.value == 1
 
 
 def print_key_for_connection(row, col, shifted=False):
