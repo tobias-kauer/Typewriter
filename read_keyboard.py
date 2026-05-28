@@ -8,14 +8,12 @@ ROW_EN = 2
 ROW_S0 = 3
 ROW_S1 = 4
 ROW_S2 = 5
-ROW_S3 = 6
 ROW_SIG = 26
 
 COL_EN = 17
 COL_S0 = 27
 COL_S1 = 22
 COL_S2 = 10
-COL_S3 = 9
 COL_SIG = 11
 
 SHIFT_PIN = 13
@@ -54,11 +52,10 @@ KEYMAP_SHIFT = (
 ACTIVE_PRESSES = {}
 
 
-def set_mux_channel(s0, s1, s2, s3, channel):
+def set_mux_channel(s0, s1, s2, channel):
     s0.value = (channel >> 0) & 1
     s1.value = (channel >> 1) & 1
     s2.value = (channel >> 2) & 1
-    s3.value = (channel >> 3) & 1
 
 
 def disable_muxes():
@@ -74,8 +71,8 @@ def enable_muxes():
 def has_connection(row, col):
     disable_muxes()
 
-    set_mux_channel(ROW_S0_LINE, ROW_S1_LINE, ROW_S2_LINE, ROW_S3_LINE, row)
-    set_mux_channel(COL_S0_LINE, COL_S1_LINE, COL_S2_LINE, COL_S3_LINE, col)
+    set_mux_channel(ROW_S0_LINE, ROW_S1_LINE, ROW_S2_LINE, row)
+    set_mux_channel(COL_S0_LINE, COL_S1_LINE, COL_S2_LINE, col)
 
     time.sleep(DEBOUNCE_DELAY)
     enable_muxes()
@@ -105,7 +102,7 @@ def get_key(row, col, shifted=False):
 
 
 def shift_is_pressed():
-    return SHIFT_LINE.value == 0
+    return SHIFT_LINE.value == 1
 
 
 def is_printable_key(key):
@@ -119,11 +116,11 @@ def scan_pressed_positions(rows, cols):
 
     try:
         for row in rows:
-            set_mux_channel(ROW_S0_LINE, ROW_S1_LINE, ROW_S2_LINE, ROW_S3_LINE, row)
+            set_mux_channel(ROW_S0_LINE, ROW_S1_LINE, ROW_S2_LINE, row)
             time.sleep(DEBOUNCE_DELAY)
 
             for col in cols:
-                set_mux_channel(COL_S0_LINE, COL_S1_LINE, COL_S2_LINE, COL_S3_LINE, col)
+                set_mux_channel(COL_S0_LINE, COL_S1_LINE, COL_S2_LINE, col)
                 time.sleep(DEBOUNCE_DELAY)
 
                 if COL_SIG_LINE.value == 1:
@@ -185,22 +182,20 @@ def scan_connections(rows, cols):
 
 
 def setup_gpio():
-    global ROW_EN_LINE, ROW_S0_LINE, ROW_S1_LINE, ROW_S2_LINE, ROW_S3_LINE
-    global COL_EN_LINE, COL_S0_LINE, COL_S1_LINE, COL_S2_LINE, COL_S3_LINE
+    global ROW_EN_LINE, ROW_S0_LINE, ROW_S1_LINE, ROW_S2_LINE
+    global COL_EN_LINE, COL_S0_LINE, COL_S1_LINE, COL_S2_LINE
     global ROW_SIG_LINE, COL_SIG_LINE, SHIFT_LINE
 
     ROW_EN_LINE = OutputDevice(ROW_EN, initial_value=True)
     ROW_S0_LINE = OutputDevice(ROW_S0, initial_value=False)
     ROW_S1_LINE = OutputDevice(ROW_S1, initial_value=False)
     ROW_S2_LINE = OutputDevice(ROW_S2, initial_value=False)
-    ROW_S3_LINE = OutputDevice(ROW_S3, initial_value=False)
     ROW_SIG_LINE = OutputDevice(ROW_SIG, initial_value=False)
 
     COL_EN_LINE = OutputDevice(COL_EN, initial_value=True)
     COL_S0_LINE = OutputDevice(COL_S0, initial_value=False)
     COL_S1_LINE = OutputDevice(COL_S1, initial_value=False)
     COL_S2_LINE = OutputDevice(COL_S2, initial_value=False)
-    COL_S3_LINE = OutputDevice(COL_S3, initial_value=False)
 
     COL_SIG_LINE = InputDevice(COL_SIG, pull_up=True)
     SHIFT_LINE = InputDevice(SHIFT_PIN, pull_up=True)
