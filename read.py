@@ -25,7 +25,7 @@ TARGET_ROWS = range(ROW_COUNT)
 TARGET_COLS = range(COL_COUNT)
 
 DEBOUNCE_DELAY = 0.00002
-SAME_PRESS_DELAY = 0.25
+SAME_PRESS_DELAY = 0.15
 
 KEYMAP = (
     ("i", "z", "-", "", "KEY_MODE", "7", "q", "a"),

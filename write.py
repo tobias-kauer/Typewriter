@@ -73,6 +73,28 @@ def set_mux_channel(s0, s1, s2, channel):
     s2.value = (channel >> 2) & 1
 
 
+def high_low(line):
+    return "HIGH" if line.value else "LOW"
+
+
+def print_hold_debug(row, col):
+    lines = [
+        f"Holding bridge row={row}, col={col}",
+        f"ROW S0 GPIO {ROW_S0}: {high_low(ROW_S0_LINE)}",
+        f"ROW S1 GPIO {ROW_S1}: {high_low(ROW_S1_LINE)}",
+        f"ROW S2 GPIO {ROW_S2}: {high_low(ROW_S2_LINE)}",
+        f"COL S0 GPIO {COL_S0}: {high_low(COL_S0_LINE)}",
+        f"COL S1 GPIO {COL_S1}: {high_low(COL_S1_LINE)}",
+        f"COL S2 GPIO {COL_S2}: {high_low(COL_S2_LINE)}",
+        f"MUX EN GPIO {MUX_EN}: {high_low(MUX_EN_LINE)} (LOW = enabled)",
+    ]
+
+    if USE_SHIFT_PIN:
+        lines.append(f"SHIFT GPIO {SHIFT_PIN}: {high_low(SHIFT_LINE)}")
+
+    print("\n".join(lines), flush=True)
+
+
 def disable_muxes():
     MUX_EN_LINE.on()
 
@@ -145,6 +167,7 @@ def hold_channels_enabled(row, col):
 
     time.sleep(SETTLE_DELAY)
     enable_muxes()
+    print_hold_debug(row, col)
 
     while True:
         time.sleep(1)
