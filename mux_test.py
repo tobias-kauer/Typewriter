@@ -26,6 +26,28 @@ TARGET_COLS = range(COL_COUNT)
 
 DEBOUNCE_DELAY = 0.00002
 
+KEYMAP = (
+    ("i", "z", "-", "", "KEY_MODE", "7", "q", "a"),
+    ("k", "1", "ß", "", "KEY_BACKSPACE", "9", "s", "c"),
+    ("m", "3", "", "", "KEY_DELETE", ",", "u", "e"),
+    ("p", "6", " ", "", "", ".", "x", "h"),
+    ("o", "5", "KEY_CODE", "", "KEY_TAB", "ö", "w", "g"),
+    ("n", "4", "KEY_ENTER", "", "KEY_DOUBLE_ARROW", "ä", "v", "f"),
+    ("l", "2", "$", "", "KEY_ROW_DELETE", "0", "t", "d"),
+    ("j", "y", "ü", "", "KEY_CRAZY_ARROW", "8", "r", "b"),
+)
+
+KEYMAP_SHIFT = (
+    ("I", "Z", "_", "", "", "/", "Q", "A"),
+    ("K", "!", "?", "", "", ")", "S", "C"),
+    ("M", "§", "", "", "", ",", "U", "E"),
+    ("P", "&", "", "", "", ".", "X", "H"),
+    ("O", "%", "", "", "", "", "W", "G"),
+    ("N", "+", "", "", "", "", "V", "F"),
+    ("L", "\"", "", "", "", "=", "T", "D"),
+    ("J", "Y", "", "", "", "(", "R", "B"),
+)
+
 
 def set_mux_channel(s0, s1, s2, s3, channel):
     s0.value = (channel >> 0) & 1
@@ -61,6 +83,28 @@ def has_connection(row, col):
     return connected
 
 
+def get_key(row, col, shifted=False):
+    keymap = KEYMAP_SHIFT if shifted else KEYMAP
+
+    if row < 0 or row >= len(keymap):
+        return None
+
+    if col < 0 or col >= len(keymap[row]):
+        return None
+
+    return keymap[row][col] or None
+
+
+def print_key_for_connection(row, col, shifted=False):
+    key = get_key(row, col, shifted)
+
+    if key is None:
+        print(f"CONNECTED row={row}, col={col} -> no mapped key")
+        return
+
+    print(f"CONNECTED row={row}, col={col} -> {key}")
+
+
 def scan_connections(rows, cols):
     enable_muxes()
 
@@ -74,7 +118,7 @@ def scan_connections(rows, cols):
                 time.sleep(DEBOUNCE_DELAY)
 
                 if COL_SIG_LINE.value == 1:
-                    print(f"CONNECTED row={row}, col={col}")
+                    print_key_for_connection(row, col)
 
     finally:
         disable_muxes()
