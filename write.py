@@ -136,6 +136,20 @@ def write_key_forever(key, bridge_time=BRIDGE_TIME, inter_key_delay=INTER_KEY_DE
         time.sleep(inter_key_delay)
 
 
+def hold_channels_enabled(row, col):
+    disable_muxes()
+    set_shift(False)
+
+    set_mux_channel(ROW_S0_LINE, ROW_S1_LINE, ROW_S2_LINE, row)
+    set_mux_channel(COL_S0_LINE, COL_S1_LINE, COL_S2_LINE, col)
+
+    time.sleep(SETTLE_DELAY)
+    enable_muxes()
+
+    while True:
+        time.sleep(1)
+
+
 def setup_gpio():
     global MUX_EN_LINE
     global ROW_S0_LINE, ROW_S1_LINE, ROW_S2_LINE
@@ -184,18 +198,31 @@ def parse_args():
         action="store_true",
         help="Keep writing the first given letter until stopped",
     )
+    parser.add_argument(
+        "--hold",
+        nargs=2,
+        type=int,
+        metavar=("ROW", "COL"),
+        help="Enable one row/column bridge until stopped",
+    )
 
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
-    text = " ".join(args.text) if args.text else input("Text to write: ")
+    text = ""
+
+    if not args.hold:
+        text = " ".join(args.text) if args.text else input("Text to write: ")
 
     setup_gpio()
 
     try:
-        if args.repeat_one:
+        if args.hold:
+            row, col = args.hold
+            hold_channels_enabled(row, col)
+        elif args.repeat_one:
             if not text:
                 raise ValueError("Give one letter when using --repeat-one")
 
