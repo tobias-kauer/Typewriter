@@ -157,6 +157,7 @@ def setup_gpio():
     global SHIFT_LINE
 
     MUX_EN_LINE = OutputDevice(MUX_EN, initial_value=True)
+    MUX_EN_LINE.on()
 
     ROW_S0_LINE = OutputDevice(ROW_S0, initial_value=False)
     ROW_S1_LINE = OutputDevice(ROW_S1, initial_value=False)
