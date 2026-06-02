@@ -73,12 +73,11 @@ def set_mux_channel(s0, s1, s2, channel):
     s2.value = (channel >> 2) & 1
 
 
-def disable_muxes():
-    MUX_EN_LINE.on()
-
-
-def enable_muxes():
-    MUX_EN_LINE.off()
+def set_mux_bridge_active(active):
+    if active:
+        MUX_EN_LINE.off()
+    else:
+        MUX_EN_LINE.on()
 
 
 def set_shift(shifted):
@@ -94,8 +93,8 @@ def set_shift(shifted):
         SHIFT_LINE.on()
 
 
-def wait_with_muxes_disabled(seconds):
-    disable_muxes()
+def wait_with_mux_idle(seconds):
+    set_mux_bridge_active(False)
     set_shift(False)
 
     if seconds > 0:
@@ -103,7 +102,7 @@ def wait_with_muxes_disabled(seconds):
 
 
 def bridge_channels(row, col, bridge_time=BRIDGE_TIME, shifted=False):
-    disable_muxes()
+    set_mux_bridge_active(False)
 
     try:
         set_shift(shifted)
@@ -112,10 +111,10 @@ def bridge_channels(row, col, bridge_time=BRIDGE_TIME, shifted=False):
         set_mux_channel(COL_S0_LINE, COL_S1_LINE, COL_S2_LINE, col)
 
         time.sleep(SETTLE_DELAY)
-        enable_muxes()
+        set_mux_bridge_active(True)
         time.sleep(bridge_time)
     finally:
-        wait_with_muxes_disabled(SETTLE_DELAY)
+        wait_with_mux_idle(SETTLE_DELAY)
 
 
 def get_key_position(key):
@@ -132,22 +131,29 @@ def write_key(key, bridge_time=BRIDGE_TIME):
 
 def write_letters(text, bridge_time=BRIDGE_TIME, inter_key_delay=INTER_KEY_DELAY):
     try:
-        wait_with_muxes_disabled(SETTLE_DELAY)
+        wait_with_mux_idle(SETTLE_DELAY)
 
         for index, letter in enumerate(text):
             write_key(letter, bridge_time=bridge_time)
 
             if index < len(text) - 1:
-                wait_with_muxes_disabled(inter_key_delay)
+                wait_with_mux_idle(inter_key_delay)
 
     finally:
-        wait_with_muxes_disabled(SETTLE_DELAY)
+        wait_with_mux_idle(SETTLE_DELAY)
 
 
 def write_key_forever(key, bridge_time=BRIDGE_TIME, inter_key_delay=INTER_KEY_DELAY):
     while True:
         write_key(key, bridge_time=bridge_time)
-        wait_with_muxes_disabled(inter_key_delay)
+        wait_with_mux_idle(inter_key_delay)
+
+
+def keep_mux_idle_forever():
+    print(f"GPIO {MUX_EN} is HIGH. Press Ctrl+C to stop.")
+
+    while True:
+        wait_with_mux_idle(1)
 
 
 def setup_gpio():
@@ -157,7 +163,7 @@ def setup_gpio():
     global SHIFT_LINE
 
     MUX_EN_LINE = OutputDevice(MUX_EN, initial_value=True)
-    MUX_EN_LINE.on()
+    set_mux_bridge_active(False)
 
     ROW_S0_LINE = OutputDevice(ROW_S0, initial_value=False)
     ROW_S1_LINE = OutputDevice(ROW_S1, initial_value=False)
@@ -170,12 +176,12 @@ def setup_gpio():
     if USE_SHIFT_PIN:
         SHIFT_LINE = OutputDevice(SHIFT_PIN, initial_value=True)
 
-    disable_muxes()
+    set_mux_bridge_active(False)
     set_shift(False)
 
 
 def cleanup_gpio():
-    disable_muxes()
+    set_mux_bridge_active(False)
     set_shift(False)
 
 
@@ -199,17 +205,23 @@ def parse_args():
         action="store_true",
         help="Keep writing the first given letter until stopped",
     )
+    parser.add_argument(
+        "--keep-high",
+        action="store_true",
+        help="Keep the program alive after writing so GPIO 6 stays HIGH",
+    )
 
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
-    text = " ".join(args.text) if args.text else input("Text to write: ")
 
     setup_gpio()
 
     try:
+        text = " ".join(args.text) if args.text else input("Text to write: ")
+
         if args.repeat_one:
             if not text:
                 raise ValueError("Give one letter when using --repeat-one")
@@ -225,6 +237,9 @@ def main():
                 bridge_time=args.bridge_time,
                 inter_key_delay=args.key_delay,
             )
+
+            if args.keep_high:
+                keep_mux_idle_forever()
 
     except KeyboardInterrupt:
         print("\nStopped by user")
