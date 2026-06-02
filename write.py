@@ -18,8 +18,8 @@ COL_S2 = 21
 SHIFT_PIN = 24
 USE_SHIFT_PIN = True
 
-BRIDGE_TIME = 0.05
-INTER_KEY_DELAY = 0.05
+BRIDGE_TIME = 0.25
+INTER_KEY_DELAY = 0.20
 SETTLE_DELAY = 0.00002
 
 KEYMAP = (
@@ -81,6 +81,10 @@ def enable_muxes():
     MUX_EN_LINE.off()
 
 
+def mux_en_state():
+    return "HIGH" if MUX_EN_LINE.value else "LOW"
+
+
 def set_shift(shifted):
     if not USE_SHIFT_PIN:
         if shifted:
@@ -102,7 +106,7 @@ def wait_with_muxes_disabled(seconds):
         time.sleep(seconds)
 
 
-def bridge_channels(row, col, bridge_time=BRIDGE_TIME, shifted=False):
+def bridge_channels(row, col, bridge_time=BRIDGE_TIME, shifted=False, debug=False):
     disable_muxes()
 
     try:
@@ -112,10 +116,21 @@ def bridge_channels(row, col, bridge_time=BRIDGE_TIME, shifted=False):
         set_mux_channel(COL_S0_LINE, COL_S1_LINE, COL_S2_LINE, col)
 
         time.sleep(SETTLE_DELAY)
+
+        if debug:
+            print(f"row={row}, col={col}, MUX_EN={mux_en_state()} before press")
+
         enable_muxes()
+
+        if debug:
+            print(f"row={row}, col={col}, MUX_EN={mux_en_state()} writing")
+
         time.sleep(bridge_time)
     finally:
         wait_with_muxes_disabled(SETTLE_DELAY)
+
+        if debug:
+            print(f"row={row}, col={col}, MUX_EN={mux_en_state()} after press")
 
 
 def get_key_position(key):
@@ -125,17 +140,22 @@ def get_key_position(key):
     return KEY_POSITIONS[key]
 
 
-def write_key(key, bridge_time=BRIDGE_TIME):
+def write_key(key, bridge_time=BRIDGE_TIME, debug=False):
     row, col, shifted = get_key_position(key)
-    bridge_channels(row, col, bridge_time=bridge_time, shifted=shifted)
+    bridge_channels(row, col, bridge_time=bridge_time, shifted=shifted, debug=debug)
 
 
-def write_letters(text, bridge_time=BRIDGE_TIME, inter_key_delay=INTER_KEY_DELAY):
+def write_letters(
+    text,
+    bridge_time=BRIDGE_TIME,
+    inter_key_delay=INTER_KEY_DELAY,
+    debug=False,
+):
     try:
         wait_with_muxes_disabled(SETTLE_DELAY)
 
         for index, letter in enumerate(text):
-            write_key(letter, bridge_time=bridge_time)
+            write_key(letter, bridge_time=bridge_time, debug=debug)
 
             if index < len(text) - 1:
                 wait_with_muxes_disabled(inter_key_delay)
@@ -144,9 +164,14 @@ def write_letters(text, bridge_time=BRIDGE_TIME, inter_key_delay=INTER_KEY_DELAY
         wait_with_muxes_disabled(SETTLE_DELAY)
 
 
-def write_key_forever(key, bridge_time=BRIDGE_TIME, inter_key_delay=INTER_KEY_DELAY):
+def write_key_forever(
+    key,
+    bridge_time=BRIDGE_TIME,
+    inter_key_delay=INTER_KEY_DELAY,
+    debug=False,
+):
     while True:
-        write_key(key, bridge_time=bridge_time)
+        write_key(key, bridge_time=bridge_time, debug=debug)
         wait_with_muxes_disabled(inter_key_delay)
 
 
@@ -211,6 +236,11 @@ def parse_args():
         action="store_true",
         help="Keep the program alive after writing so GPIO 6 stays driven HIGH",
     )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Print row/column and MUX_EN state while writing",
+    )
 
     return parser.parse_args()
 
@@ -231,12 +261,14 @@ def main():
                 text[0],
                 bridge_time=args.bridge_time,
                 inter_key_delay=args.key_delay,
+                debug=args.debug,
             )
         else:
             write_letters(
                 text,
                 bridge_time=args.bridge_time,
                 inter_key_delay=args.key_delay,
+                debug=args.debug,
             )
 
             if args.keep_high:
