@@ -150,6 +150,13 @@ def write_key_forever(key, bridge_time=BRIDGE_TIME, inter_key_delay=INTER_KEY_DE
         wait_with_muxes_disabled(inter_key_delay)
 
 
+def keep_muxes_disabled_forever():
+    print(f"Done writing. GPIO {MUX_EN} is HIGH. Press Ctrl+C to stop.")
+
+    while True:
+        wait_with_muxes_disabled(1)
+
+
 def setup_gpio():
     global MUX_EN_LINE
     global ROW_S0_LINE, ROW_S1_LINE, ROW_S2_LINE
@@ -199,17 +206,23 @@ def parse_args():
         action="store_true",
         help="Keep writing the first given letter until stopped",
     )
+    parser.add_argument(
+        "--exit-after-write",
+        action="store_true",
+        help="Exit after writing instead of keeping GPIO 6 driven HIGH",
+    )
 
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
-    text = " ".join(args.text) if args.text else input("Text to write: ")
 
     setup_gpio()
 
     try:
+        text = " ".join(args.text) if args.text else input("Text to write: ")
+
         if args.repeat_one:
             if not text:
                 raise ValueError("Give one letter when using --repeat-one")
@@ -225,6 +238,9 @@ def main():
                 bridge_time=args.bridge_time,
                 inter_key_delay=args.key_delay,
             )
+
+            if not args.exit_after_write:
+                keep_muxes_disabled_forever()
 
     except KeyboardInterrupt:
         print("\nStopped by user")
