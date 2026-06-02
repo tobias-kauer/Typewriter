@@ -3,7 +3,6 @@
 
 import argparse
 import time
-from gpiozero import OutputDevice
 
 MUX_EN = 6
 
@@ -62,6 +61,14 @@ def build_key_positions():
 
 
 KEY_POSITIONS = build_key_positions()
+SPECIAL_KEYS = tuple(
+    sorted(
+        (key for key in KEY_POSITIONS if key.startswith("KEY_")),
+        key=len,
+        reverse=True,
+    )
+)
+SPECIAL_KEY_SEPARATORS = {" ", "\t", "\n", "\r", ","}
 
 
 def set_mux_channel(s0, s1, s2, channel):
@@ -129,14 +136,55 @@ def write_key(key, bridge_time=BRIDGE_TIME):
     bridge_channels(row, col, bridge_time=bridge_time, shifted=shifted)
 
 
+def special_key_at(text, index):
+    for special_key in SPECIAL_KEYS:
+        if text.startswith(special_key, index):
+            return special_key
+
+    return None
+
+
+def next_non_separator_is_special_key(text, index):
+    while index < len(text) and text[index] in SPECIAL_KEY_SEPARATORS:
+        index += 1
+
+    return special_key_at(text, index) is not None
+
+
+def parse_key_tokens(text):
+    tokens = []
+    index = 0
+
+    while index < len(text):
+        matching_key = special_key_at(text, index)
+
+        if text[index] in SPECIAL_KEY_SEPARATORS:
+            previous_was_special = bool(tokens and tokens[-1] in SPECIAL_KEYS)
+
+            if previous_was_special or next_non_separator_is_special_key(text, index):
+                index += 1
+                continue
+
+        if matching_key is not None:
+            tokens.append(matching_key)
+            index += len(matching_key)
+        else:
+            tokens.append(text[index])
+            index += 1
+
+    return tokens
+
+
 def write_letters(text, bridge_time=BRIDGE_TIME, inter_key_delay=INTER_KEY_DELAY):
+    tokens = parse_key_tokens(text)
+
     try:
         wait_with_mux_idle(SETTLE_DELAY)
 
-        for index, letter in enumerate(text):
-            write_key(letter, bridge_time=bridge_time)
+        for index, token in enumerate(tokens):
+            write_key(token, bridge_time=bridge_time)
 
-            if index < len(text) - 1:
+            if index < len(tokens) - 1:
                 wait_with_mux_idle(inter_key_delay)
 
     finally:
@@ -157,6 +205,8 @@ def keep_mux_idle_forever():
 
 
 def setup_gpio():
+    from gpiozero import OutputDevice
+
     global MUX_EN_LINE
     global ROW_S0_LINE, ROW_S1_LINE, ROW_S2_LINE
     global COL_S0_LINE, COL_S1_LINE, COL_S2_LINE
@@ -189,6 +239,16 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Write text through the mux bridge.")
     parser.add_argument("text", nargs="*", help="Text to write")
     parser.add_argument(
+        "--list-special-keys",
+        action="store_true",
+        help="Print matrix key names like KEY_BACKSPACE and exit",
+    )
+    parser.add_argument(
+        "--show-tokens",
+        action="store_true",
+        help="Print the parsed key tokens and exit without using GPIO",
+    )
+    parser.add_argument(
         "--bridge-time",
         type=float,
         default=BRIDGE_TIME,
@@ -217,17 +277,28 @@ def parse_args():
 def main():
     args = parse_args()
 
+    if args.list_special_keys:
+        print("\n".join(SPECIAL_KEYS))
+        return
+
+    if args.show_tokens:
+        text = " ".join(args.text) if args.text else input("Text to write: ")
+        print(parse_key_tokens(text))
+        return
+
     setup_gpio()
 
     try:
         text = " ".join(args.text) if args.text else input("Text to write: ")
 
         if args.repeat_one:
-            if not text:
+            tokens = parse_key_tokens(text)
+
+            if not tokens:
                 raise ValueError("Give one letter when using --repeat-one")
 
             write_key_forever(
-                text[0],
+                tokens[0],
                 bridge_time=args.bridge_time,
                 inter_key_delay=args.key_delay,
             )
