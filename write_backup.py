@@ -2,11 +2,7 @@
 """Write text by briefly bridging row/column mux channels."""
 
 import argparse
-import select
-import sys
-import termios
 import time
-import tty
 
 MUX_EN = 6
 
@@ -24,7 +20,6 @@ USE_SHIFT_PIN = True
 BRIDGE_TIME = 0.05
 INTER_KEY_DELAY = 0.05
 SETTLE_DELAY = 0.00002
-IDLE_POLL_DELAY = 0.01
 
 KEYMAP = (
     ("i", "z", "-", "", "KEY_MODE", "7", "q", "a"),
@@ -202,73 +197,11 @@ def write_key_forever(key, bridge_time=BRIDGE_TIME, inter_key_delay=INTER_KEY_DE
         wait_with_mux_idle(inter_key_delay)
 
 
-def read_terminal_key():
-    key = sys.stdin.read(1)
-
-    if key == "\x03":
-        raise KeyboardInterrupt
-
-    if key in ("\r", "\n"):
-        return "KEY_ENTER"
-
-    if key == "\t":
-        return "KEY_TAB"
-
-    if key in ("\x7f", "\b"):
-        return "KEY_BACKSPACE"
-
-    if key == "\x1b":
-        if select.select([sys.stdin], [], [], 0)[0]:
-            sequence = key + sys.stdin.read(1)
-
-            if select.select([sys.stdin], [], [], 0)[0]:
-                sequence += sys.stdin.read(1)
-
-            if sequence == "\x1b[3":
-                if select.select([sys.stdin], [], [], 0)[0]:
-                    sequence += sys.stdin.read(1)
-
-            if sequence == "\x1b[3~":
-                return "KEY_DELETE"
-
-        return None
-
-    return key
-
-
-def listen_for_keypresses(bridge_time=BRIDGE_TIME):
-    print("Listening. Press Ctrl+C to stop.")
+def keep_mux_idle_forever():
+    print(f"GPIO {MUX_EN} is HIGH. Press Ctrl+C to stop.")
 
     while True:
-        wait_with_mux_idle(0)
-
-        if not select.select([sys.stdin], [], [], IDLE_POLL_DELAY)[0]:
-            continue
-
-        key = read_terminal_key()
-
-        if key is None:
-            continue
-
-        if key not in KEY_POSITIONS:
-            print(f"Ignoring unmapped key: {key!r}")
-            continue
-
-        write_key(key, bridge_time=bridge_time)
-
-
-def run_in_raw_terminal(callback):
-    if not sys.stdin.isatty():
-        callback()
-        return
-
-    old_settings = termios.tcgetattr(sys.stdin)
-
-    try:
-        tty.setcbreak(sys.stdin.fileno())
-        callback()
-    finally:
-        termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
+        wait_with_mux_idle(1)
 
 
 def setup_gpio():
@@ -303,8 +236,8 @@ def cleanup_gpio():
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Listen for keypresses and write them.")
-    parser.add_argument("text", nargs="*", help="Optional text to write once before listening")
+    parser = argparse.ArgumentParser(description="Write text through the mux bridge.")
+    parser.add_argument("text", nargs="*", help="Text to write")
     parser.add_argument(
         "--list-special-keys",
         action="store_true",
@@ -335,12 +268,7 @@ def parse_args():
     parser.add_argument(
         "--keep-high",
         action="store_true",
-        help="Only keep GPIO 6 HIGH without listening",
-    )
-    parser.add_argument(
-        "--write-once",
-        action="store_true",
-        help="Write the given text once and exit instead of listening",
+        help="Keep the program alive after writing so GPIO 6 stays HIGH",
     )
 
     return parser.parse_args()
@@ -361,13 +289,7 @@ def main():
     setup_gpio()
 
     try:
-        if args.keep_high:
-            print(f"GPIO {MUX_EN} is HIGH. Press Ctrl+C to stop.")
-
-            while True:
-                wait_with_mux_idle(1)
-
-        text = " ".join(args.text)
+        text = " ".join(args.text) if args.text else input("Text to write: ")
 
         if args.repeat_one:
             tokens = parse_key_tokens(text)
@@ -380,18 +302,15 @@ def main():
                 bridge_time=args.bridge_time,
                 inter_key_delay=args.key_delay,
             )
-
-        if text:
+        else:
             write_letters(
                 text,
                 bridge_time=args.bridge_time,
                 inter_key_delay=args.key_delay,
             )
 
-            if args.write_once:
-                return
-
-        run_in_raw_terminal(lambda: listen_for_keypresses(bridge_time=args.bridge_time))
+            if args.keep_high:
+                keep_mux_idle_forever()
 
     except KeyboardInterrupt:
         print("\nStopped by user")
