@@ -207,9 +207,9 @@ def parse_args():
         help="Keep writing the first given letter until stopped",
     )
     parser.add_argument(
-        "--exit-after-write",
+        "--keep-high",
         action="store_true",
-        help="Exit after writing instead of keeping GPIO 6 driven HIGH",
+        help="Keep the program alive after writing so GPIO 6 stays driven HIGH",
     )
 
     return parser.parse_args()
@@ -239,7 +239,7 @@ def main():
                 inter_key_delay=args.key_delay,
             )
 
-            if not args.exit_after_write:
+            if args.keep_high:
                 keep_muxes_disabled_forever()
 
     except KeyboardInterrupt:
