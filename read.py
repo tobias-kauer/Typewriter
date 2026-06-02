@@ -2,7 +2,6 @@
 """Fast test program: continuously scan all row/column mux channels."""
 
 import time
-from gpiozero import OutputDevice, InputDevice
 
 ROW_EN = 2
 ROW_S0 = 3
@@ -26,6 +25,7 @@ TARGET_COLS = range(COL_COUNT)
 
 DEBOUNCE_DELAY = 0.00002
 SAME_PRESS_DELAY = 0.15
+SCAN_DELAY = 0.01
 
 KEYMAP = (
     ("i", "z", "-", "", "KEY_MODE", "7", "q", "a"),
@@ -164,6 +164,33 @@ def read_letters_as_string(rows=TARGET_ROWS, cols=TARGET_COLS):
     return "".join(letters)
 
 
+def read_keys(rows=TARGET_ROWS, cols=TARGET_COLS):
+    shifted = shift_is_pressed()
+    keys = []
+
+    for row, col in get_new_press_positions(rows, cols):
+        key = get_key(row, col, shifted)
+
+        if key is not None:
+            keys.append(key)
+
+    return keys
+
+
+def read_loop(output_queue, stop_event=None, rows=TARGET_ROWS, cols=TARGET_COLS):
+    setup_gpio()
+
+    try:
+        while stop_event is None or not stop_event.is_set():
+            for key in read_keys(rows, cols):
+                output_queue.put(key)
+
+            time.sleep(SCAN_DELAY)
+
+    finally:
+        cleanup_gpio()
+
+
 def print_key_for_connection(row, col, shifted=False):
     key = get_key(row, col, shifted)
 
@@ -182,6 +209,8 @@ def scan_connections(rows, cols):
 
 
 def setup_gpio():
+    from gpiozero import OutputDevice, InputDevice
+
     global ROW_EN_LINE, ROW_S0_LINE, ROW_S1_LINE, ROW_S2_LINE
     global COL_EN_LINE, COL_S0_LINE, COL_S1_LINE, COL_S2_LINE
     global ROW_SIG_LINE, COL_SIG_LINE, SHIFT_LINE

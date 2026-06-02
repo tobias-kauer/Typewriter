@@ -2,6 +2,7 @@
 """Write text by briefly bridging row/column mux channels."""
 
 import argparse
+import queue
 import select
 import sys
 import termios
@@ -180,9 +181,7 @@ def parse_key_tokens(text):
     return tokens
 
 
-def write_letters(text, bridge_time=BRIDGE_TIME, inter_key_delay=INTER_KEY_DELAY):
-    tokens = parse_key_tokens(text)
-
+def write_tokens(tokens, bridge_time=BRIDGE_TIME, inter_key_delay=INTER_KEY_DELAY):
     try:
         wait_with_mux_idle(SETTLE_DELAY)
 
@@ -194,6 +193,57 @@ def write_letters(text, bridge_time=BRIDGE_TIME, inter_key_delay=INTER_KEY_DELAY
 
     finally:
         wait_with_mux_idle(SETTLE_DELAY)
+
+
+def write_letters(text, bridge_time=BRIDGE_TIME, inter_key_delay=INTER_KEY_DELAY):
+    write_tokens(
+        parse_key_tokens(text),
+        bridge_time=bridge_time,
+        inter_key_delay=inter_key_delay,
+    )
+
+
+def write_queue_item(item, bridge_time=BRIDGE_TIME, inter_key_delay=INTER_KEY_DELAY):
+    if item is None:
+        return
+
+    if isinstance(item, (list, tuple)):
+        tokens = item
+    elif item in KEY_POSITIONS:
+        tokens = [item]
+    else:
+        tokens = parse_key_tokens(str(item))
+
+    write_tokens(tokens, bridge_time=bridge_time, inter_key_delay=inter_key_delay)
+
+
+def write_loop(input_queue, stop_event=None, bridge_time=BRIDGE_TIME):
+    setup_gpio()
+
+    try:
+        while stop_event is None or not stop_event.is_set() or not input_queue.empty():
+            wait_with_mux_idle(0)
+
+            try:
+                item = input_queue.get(timeout=IDLE_POLL_DELAY)
+            except queue.Empty:
+                continue
+
+            try:
+                if item is None:
+                    if stop_event is not None:
+                        stop_event.set()
+
+                    break
+
+                write_queue_item(item, bridge_time=bridge_time)
+
+            finally:
+                if hasattr(input_queue, "task_done"):
+                    input_queue.task_done()
+
+    finally:
+        cleanup_gpio()
 
 
 def write_key_forever(key, bridge_time=BRIDGE_TIME, inter_key_delay=INTER_KEY_DELAY):
