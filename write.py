@@ -116,22 +116,28 @@ def set_shift(shifted):
         SHIFT_LINE.on()
 
 
+def wait_with_muxes_disabled(seconds):
+    disable_muxes()
+    set_shift(False)
+
+    if seconds > 0:
+        time.sleep(seconds)
+
+
 def bridge_channels(row, col, bridge_time=BRIDGE_TIME, shifted=False):
     disable_muxes()
-    set_shift(shifted)
-
-    set_mux_channel(ROW_S0_LINE, ROW_S1_LINE, ROW_S2_LINE, row)
-    set_mux_channel(COL_S0_LINE, COL_S1_LINE, COL_S2_LINE, col)
-
-    time.sleep(SETTLE_DELAY)
-    enable_muxes()
 
     try:
+        set_shift(shifted)
+
+        set_mux_channel(ROW_S0_LINE, ROW_S1_LINE, ROW_S2_LINE, row)
+        set_mux_channel(COL_S0_LINE, COL_S1_LINE, COL_S2_LINE, col)
+
+        time.sleep(SETTLE_DELAY)
+        enable_muxes()
         time.sleep(bridge_time)
     finally:
-        disable_muxes()
-        set_shift(False)
-        time.sleep(SETTLE_DELAY)
+        wait_with_muxes_disabled(SETTLE_DELAY)
 
 
 def get_key_position(key):
@@ -147,17 +153,23 @@ def write_key(key, bridge_time=BRIDGE_TIME):
 
 
 def write_letters(text, bridge_time=BRIDGE_TIME, inter_key_delay=INTER_KEY_DELAY):
-    for index, letter in enumerate(text):
-        write_key(letter, bridge_time=bridge_time)
+    try:
+        wait_with_muxes_disabled(SETTLE_DELAY)
 
-        if index < len(text) - 1:
-            time.sleep(inter_key_delay)
+        for index, letter in enumerate(text):
+            write_key(letter, bridge_time=bridge_time)
+
+            if index < len(text) - 1:
+                wait_with_muxes_disabled(inter_key_delay)
+
+    finally:
+        wait_with_muxes_disabled(SETTLE_DELAY)
 
 
 def write_key_forever(key, bridge_time=BRIDGE_TIME, inter_key_delay=INTER_KEY_DELAY):
     while True:
         write_key(key, bridge_time=bridge_time)
-        time.sleep(inter_key_delay)
+        wait_with_muxes_disabled(inter_key_delay)
 
 
 def hold_channels_enabled(row, col):
