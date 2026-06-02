@@ -18,7 +18,7 @@ COL_S2 = 21
 SHIFT_PIN = 24
 USE_SHIFT_PIN = True
 
-BRIDGE_TIME = 10
+BRIDGE_TIME = 0.05
 INTER_KEY_DELAY = 0.05
 SETTLE_DELAY = 0.00002
 
@@ -147,9 +147,11 @@ def write_key(key, bridge_time=BRIDGE_TIME):
 
 
 def write_letters(text, bridge_time=BRIDGE_TIME, inter_key_delay=INTER_KEY_DELAY):
-    for letter in text:
+    for index, letter in enumerate(text):
         write_key(letter, bridge_time=bridge_time)
-        time.sleep(inter_key_delay)
+
+        if index < len(text) - 1:
+            time.sleep(inter_key_delay)
 
 
 def write_key_forever(key, bridge_time=BRIDGE_TIME, inter_key_delay=INTER_KEY_DELAY):
