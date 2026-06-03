@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Small Ollama client for local text generation."""
 
+import argparse
 import json
 import urllib.error
 import urllib.request
@@ -8,6 +9,7 @@ import urllib.request
 DEFAULT_MODEL = "gemma3:1b"
 DEFAULT_OLLAMA_URL = "http://localhost:11434/api/generate"
 DEFAULT_TIMEOUT = 60
+TEST_PROMPT = "hey how are you"
 
 
 class AutocompleteError(RuntimeError):
@@ -114,7 +116,30 @@ def generate_text_stream(
         ) from error
 
 
+def test_llm():
+    print(f"Prompt: {TEST_PROMPT}")
+    print("Response:")
+    print(generate_text(TEST_PROMPT))
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Test or use local Gemma autocomplete.")
+    parser.add_argument(
+        "--test",
+        action="store_true",
+        help="Send a fixed test prompt to the LLM and print the response",
+    )
+
+    return parser.parse_args()
+
+
 def main():
+    args = parse_args()
+
+    if args.test:
+        test_llm()
+        return
+
     prompt = input("Prompt: ")
     print(generate_text(prompt))
 
