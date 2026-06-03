@@ -4,19 +4,8 @@
 import queue
 import threading
 
-import autocomplete
 import read
 import write
-
-
-def generate_autocomplete_response(prompt):
-    return autocomplete.generate_text(prompt)
-
-
-def write_autocomplete_response(write_queue, prompt):
-    response = generate_autocomplete_response(prompt)
-    enqueue_write_output(write_queue, response)
-    return response
 
 
 def process_read_key(key):
