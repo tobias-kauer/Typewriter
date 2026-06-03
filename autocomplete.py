@@ -6,10 +6,22 @@ import json
 import urllib.error
 import urllib.request
 
+import write
+
 DEFAULT_MODEL = "gemma3:1b"
 DEFAULT_OLLAMA_URL = "http://localhost:11434/api/generate"
 DEFAULT_TIMEOUT = 60
 TEST_PROMPT = "hey how are you"
+ALLOWED_OUTPUT_CHARS = {
+    key for key in write.KEY_POSITIONS if len(key) == 1 and not key.startswith("KEY_")
+}
+BLOCKED_OUTPUT_TOKENS = tuple(
+    sorted(
+        (key for key in write.KEY_POSITIONS if key.startswith("KEY_")),
+        key=len,
+        reverse=True,
+    )
+)
 
 
 class AutocompleteError(RuntimeError):
@@ -17,11 +29,22 @@ class AutocompleteError(RuntimeError):
 
 
 def build_prompt(prompt):
+    allowed_symbols = "".join(sorted(ALLOWED_OUTPUT_CHARS))
+
     return (
         "Continue or complete the following typewriter text. "
-        "Return only the text that should be written, without explanations.\n\n"
+        "Return only the text that should be written, without explanations. "
+        "Use only these exact output characters: "
+        f"{allowed_symbols!r}.\n\n"
         f"{prompt}"
     )
+
+
+def sanitize_generated_text(text):
+    for token in BLOCKED_OUTPUT_TOKENS:
+        text = text.replace(token, "")
+
+    return "".join(char for char in text if char in ALLOWED_OUTPUT_CHARS)
 
 
 def generate_text(
@@ -61,7 +84,7 @@ def generate_text(
     if "error" in payload:
         raise AutocompleteError(payload["error"])
 
-    return payload.get("response", "").strip()
+    return sanitize_generated_text(payload.get("response", "")).strip()
 
 
 def generate_text_stream(
@@ -103,8 +126,10 @@ def generate_text_stream(
 
                 chunk = payload.get("response", "")
 
-                if chunk:
-                    yield chunk
+                safe_chunk = sanitize_generated_text(chunk)
+
+                if safe_chunk:
+                    yield safe_chunk
 
                 if payload.get("done"):
                     break
