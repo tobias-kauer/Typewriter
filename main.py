@@ -78,6 +78,7 @@ def stream_autocomplete_to_writer(prompt, write_queue, autocomplete_stop_event):
             if autocomplete_stop_event.is_set():
                 break
 
+            print(f"AUTOCOMPLETE OUT: {chunk!r}", flush=True)
             enqueue_write_output(write_queue, chunk)
 
     except autocomplete.AutocompleteError as error:
