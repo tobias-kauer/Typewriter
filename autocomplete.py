@@ -12,6 +12,7 @@ DEFAULT_MODEL = "gemma3:1b"
 DEFAULT_OLLAMA_URL = "http://localhost:11434/api/generate"
 DEFAULT_TIMEOUT = 60
 TEST_PROMPT = "hey how are you"
+DEFAULT_MAX_OUTPUT_CHARS = 160
 ALLOWED_OUTPUT_CHARS = {
     key for key in write.KEY_POSITIONS if len(key) == 1 and not key.startswith("KEY_")
 }
@@ -29,14 +30,15 @@ class AutocompleteError(RuntimeError):
 
 
 def build_prompt(prompt):
-    allowed_symbols = "".join(sorted(ALLOWED_OUTPUT_CHARS))
-
     return (
-        "Continue or complete the following typewriter text. "
-        "Return only the text that should be written, without explanations. "
-        "Use only these exact output characters: "
-        f"{allowed_symbols!r}.\n\n"
-        f"{prompt}"
+        "You are an autocomplete engine for a typewriter.\n"
+        "Continue the existing text naturally.\n"
+        "Output only the new continuation text.\n"
+        "Do not repeat the existing text.\n"
+        "Do not list characters, alphabets, symbols, rules, or explanations.\n"
+        "Keep the continuation short.\n\n"
+        f"Existing text:\n{prompt}\n\n"
+        "Continuation:"
     )
 
 
@@ -45,6 +47,45 @@ def sanitize_generated_text(text):
         text = text.replace(token, "")
 
     return "".join(char for char in text if char in ALLOWED_OUTPUT_CHARS)
+
+
+def remove_prompt_echo(text, prompt):
+    prompt = sanitize_generated_text(prompt).strip()
+
+    if not text or not prompt:
+        return text
+
+    compare_text = text.lstrip()
+    text_lower = compare_text.lower()
+    prompt_lower = prompt.lower()
+
+    if not compare_text:
+        return text
+
+    if prompt_lower.startswith(text_lower):
+        return ""
+
+    if text_lower.startswith(prompt_lower):
+        return compare_text[len(prompt):].lstrip()
+
+    common_length = 0
+
+    for text_char, prompt_char in zip(text_lower, prompt_lower):
+        if text_char != prompt_char:
+            break
+
+        common_length += 1
+
+    if common_length >= min(8, len(prompt_lower)):
+        return compare_text[common_length:].lstrip()
+
+    return text
+
+
+def clean_generated_text(text, prompt, max_chars=DEFAULT_MAX_OUTPUT_CHARS):
+    cleaned = sanitize_generated_text(text)
+    cleaned = remove_prompt_echo(cleaned, prompt)
+    return cleaned[:max_chars].rstrip()
 
 
 def generate_text(
@@ -84,7 +125,7 @@ def generate_text(
     if "error" in payload:
         raise AutocompleteError(payload["error"])
 
-    return sanitize_generated_text(payload.get("response", "")).strip()
+    return clean_generated_text(payload.get("response", ""), prompt)
 
 
 def generate_text_stream(
@@ -93,6 +134,7 @@ def generate_text_stream(
     ollama_url=DEFAULT_OLLAMA_URL,
     timeout=DEFAULT_TIMEOUT,
     stop_event=None,
+    max_chars=DEFAULT_MAX_OUTPUT_CHARS,
 ):
     request_body = {
         "model": model,
@@ -109,6 +151,9 @@ def generate_text_stream(
 
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
+            raw_text = ""
+            emitted_text = ""
+
             for line in response:
                 if stop_event is not None and stop_event.is_set():
                     break
@@ -124,12 +169,21 @@ def generate_text_stream(
                 if "error" in payload:
                     raise AutocompleteError(payload["error"])
 
-                chunk = payload.get("response", "")
+                raw_text += payload.get("response", "")
 
-                safe_chunk = sanitize_generated_text(chunk)
+                safe_text = clean_generated_text(
+                    raw_text,
+                    prompt,
+                    max_chars=max_chars,
+                )
+                safe_chunk = safe_text[len(emitted_text):]
 
                 if safe_chunk:
+                    emitted_text = safe_text
                     yield safe_chunk
+
+                if len(emitted_text) >= max_chars:
+                    break
 
                 if payload.get("done"):
                     break
