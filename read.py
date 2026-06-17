@@ -10,14 +10,14 @@ import tty
 ROW_EN = 2
 ROW_S0 = 3
 ROW_S1 = 4
-ROW_S2 = 5
-ROW_SIG = 26
+ROW_S2 = 17
+ROW_SIG = 27
 
-COL_EN = 17
-COL_S0 = 27
-COL_S1 = 22
-COL_S2 = 10
-COL_SIG = 11
+COL_EN = 22
+COL_S0 = 10
+COL_S1 = 9
+COL_S2 = 11
+COL_SIG = 0
 
 SHIFT_PIN = 13
 
