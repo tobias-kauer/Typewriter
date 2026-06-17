@@ -9,17 +9,17 @@ import termios
 import time
 import tty
 
-MUX_EN = 6
+MUX_EN = 7
 
-ROW_S0 = 7
-ROW_S1 = 1
-ROW_S2 = 12
+ROW_S0 = 15
+ROW_S1 = 18
+ROW_S2 = 23
 
-COL_S0 = 16
-COL_S1 = 20
-COL_S2 = 21
+COL_S0 = 24
+COL_S1 = 25
+COL_S2 = 8
 
-SHIFT_PIN = 24
+SHIFT_PIN = 1
 USE_SHIFT_PIN = True
 
 BRIDGE_TIME = 0.05
