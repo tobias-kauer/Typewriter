@@ -29,16 +29,37 @@ class AutocompleteError(RuntimeError):
     pass
 
 
+def build_ollama_connection_error(error, model, ollama_url):
+    reason = getattr(error, "reason", error)
+    return (
+        f"Could not reach Ollama at {ollama_url}: {reason}. "
+        "Start Ollama with `ollama serve` or open the Ollama app, then check "
+        f"that {model!r} appears in `ollama list`."
+    )
+
+
 def build_prompt(prompt):
     return (
         "You are an autocomplete engine for a typewriter.\n"
-        "Continue the existing text naturally.\n"
-        "Output only the new continuation text.\n"
+        "Continue the existing text naturally with the next few words.\n"
+        "Start exactly where the existing text stops.\n"
+        "Output only the new continuation text, never the existing text.\n"
         "Do not repeat the existing text.\n"
         "Do not list characters, alphabets, symbols, rules, or explanations.\n"
         "Keep the continuation short.\n\n"
         f"Existing text:\n{prompt}\n\n"
         "Continuation:"
+    )
+
+
+def build_retry_prompt(prompt):
+    return (
+        "Write only the next new words for this text.\n"
+        "Do not copy or restate any part of the existing text.\n"
+        "Your answer must begin with the first new character after the existing text.\n"
+        "Return a short natural continuation, 1 to 8 words.\n\n"
+        f"Existing text that must not be repeated:\n{prompt}\n\n"
+        "New continuation only:"
     )
 
 
@@ -93,10 +114,11 @@ def generate_text(
     model=DEFAULT_MODEL,
     ollama_url=DEFAULT_OLLAMA_URL,
     timeout=DEFAULT_TIMEOUT,
+    prompt_text=None,
 ):
     request_body = {
         "model": model,
-        "prompt": build_prompt(prompt),
+        "prompt": prompt_text if prompt_text is not None else build_prompt(prompt),
         "stream": False,
     }
     request_data = json.dumps(request_body).encode("utf-8")
@@ -113,8 +135,7 @@ def generate_text(
 
     except urllib.error.URLError as error:
         raise AutocompleteError(
-            "Could not reach Ollama. Make sure it is running and that "
-            f"{model!r} is available."
+            build_ollama_connection_error(error, model, ollama_url)
         ) from error
 
     try:
@@ -135,10 +156,12 @@ def generate_text_stream(
     timeout=DEFAULT_TIMEOUT,
     stop_event=None,
     max_chars=DEFAULT_MAX_OUTPUT_CHARS,
+    raw_chunk_callback=None,
+    prompt_text=None,
 ):
     request_body = {
         "model": model,
-        "prompt": build_prompt(prompt),
+        "prompt": prompt_text if prompt_text is not None else build_prompt(prompt),
         "stream": True,
     }
     request_data = json.dumps(request_body).encode("utf-8")
@@ -169,7 +192,12 @@ def generate_text_stream(
                 if "error" in payload:
                     raise AutocompleteError(payload["error"])
 
-                raw_text += payload.get("response", "")
+                raw_chunk = payload.get("response", "")
+
+                if raw_chunk_callback is not None and raw_chunk:
+                    raw_chunk_callback(raw_chunk)
+
+                raw_text += raw_chunk
 
                 safe_text = clean_generated_text(
                     raw_text,
@@ -190,8 +218,7 @@ def generate_text_stream(
 
     except urllib.error.URLError as error:
         raise AutocompleteError(
-            "Could not reach Ollama. Make sure it is running and that "
-            f"{model!r} is available."
+            build_ollama_connection_error(error, model, ollama_url)
         ) from error
 
 

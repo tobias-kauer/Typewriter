@@ -3,7 +3,9 @@
 
 import argparse
 import queue
+import sys
 import threading
+import time
 
 import autocomplete
 import read
@@ -11,6 +13,152 @@ import write
 
 AUTOCOMPLETE_START_KEY = "KEY_CODE"
 AUTOCOMPLETE_STOP_KEY = "KEY_MODE"
+
+RESET = "\033[0m"
+BOLD = "\033[1m"
+DIM = "\033[2m"
+READ_COLOR = "\033[38;5;245m"
+TYPED_COLOR = "\033[38;5;39m"
+GENERATED_COLOR = "\033[38;5;114m"
+AUTOCOMPLETE_COLOR = "\033[38;5;221m"
+LLM_COLOR = "\033[38;5;183m"
+ERROR_COLOR = "\033[38;5;203m"
+
+
+class DebugTextDisplay:
+    """Terminal-only display for main.py --debug.
+
+    The Raspberry Pi path still uses read.py and write.py directly. This class
+    only keeps the Mac debug run readable by showing the whole text buffer after
+    every visible change.
+    """
+
+    def __init__(self, output_stream=sys.stdout, use_color=None):
+        self.output_stream = output_stream
+        self.use_color = output_stream.isatty() if use_color is None else use_color
+        self.segments = []
+        self.lock = threading.Lock()
+
+    def color(self, text, ansi_color):
+        if not self.use_color:
+            return text
+
+        return f"{ansi_color}{text}{RESET}"
+
+    def log(self, label, message, color=READ_COLOR):
+        with self.lock:
+            self._log(label, message, color)
+
+    def read(self, key):
+        self.log("READ", repr(key), READ_COLOR)
+
+    def autocomplete_prompt(self, prompt):
+        with self.lock:
+            self._log("AUTOCOMPLETE PROMPT", repr(prompt), AUTOCOMPLETE_COLOR)
+            self._render_text()
+
+    def llm_prompt(self, prompt):
+        with self.lock:
+            self._block("LLM PROMPT SENT", prompt, LLM_COLOR)
+
+    def llm_reply(self, reply, partial=False):
+        label = "LLM RAW REPLY"
+
+        if partial:
+            label += " PARTIAL"
+
+        with self.lock:
+            self._block(label, reply or "(empty)", LLM_COLOR)
+
+    def llm_response_time(self, seconds, attempt, partial=False):
+        message = f"attempt {attempt}: {seconds:.2f}s"
+
+        if partial:
+            message += " partial"
+
+        self.log("LLM RESPONSE TIME", message, LLM_COLOR)
+
+    def autocomplete_out(self, chunk):
+        with self.lock:
+            self._append_text("generated", chunk)
+            self._log("AUTOCOMPLETE OUT", repr(chunk), AUTOCOMPLETE_COLOR)
+            self._render_text()
+
+    def autocomplete_error(self, error):
+        with self.lock:
+            self._log("AUTOCOMPLETE ERROR", str(error), ERROR_COLOR)
+            self._render_text()
+
+    def autocomplete_status(self, message):
+        with self.lock:
+            self._log("AUTOCOMPLETE", message, AUTOCOMPLETE_COLOR)
+            self._render_text()
+
+    def typed_key(self, key):
+        text = key_to_prompt_text(key)
+
+        with self.lock:
+            if key == "KEY_BACKSPACE":
+                self._pop_last_character()
+                self._render_text()
+            elif text:
+                self._append_text("typed", text)
+                self._render_text()
+
+    def _log(self, label, message, color):
+        styled_label = self.color(label.ljust(20), color)
+        print(f"{styled_label} {message}", file=self.output_stream, flush=True)
+
+    def _block(self, label, text, color):
+        styled_label = self.color(label, color)
+        border = self.color("-" * len(label), DIM)
+        print(styled_label, file=self.output_stream)
+        print(border, file=self.output_stream)
+        print(text, file=self.output_stream)
+        print(border, file=self.output_stream, flush=True)
+
+    def _append_text(self, source, text):
+        if not text:
+            return
+
+        if self.segments and self.segments[-1][0] == source:
+            previous_source, previous_text = self.segments[-1]
+            self.segments[-1] = (previous_source, previous_text + text)
+        else:
+            self.segments.append((source, text))
+
+    def _pop_last_character(self):
+        while self.segments:
+            source, text = self.segments[-1]
+
+            if text:
+                text = text[:-1]
+
+            if text:
+                self.segments[-1] = (source, text)
+                return
+
+            self.segments.pop()
+
+    def _render_text(self):
+        print(self.color("TEXT SO FAR", BOLD), file=self.output_stream)
+
+        if not self.segments:
+            print(f"  {self.color('(empty)', DIM)}", file=self.output_stream, flush=True)
+            print(file=self.output_stream, flush=True)
+            return
+
+        rendered = "".join(
+            self.color(text, TYPED_COLOR if source == "typed" else GENERATED_COLOR)
+            for source, text in self.segments
+        )
+        rendered = rendered.replace("\t", "    ")
+
+        for line in rendered.split("\n"):
+            print(f"  {line}", file=self.output_stream)
+
+        print(file=self.output_stream)
+        self.output_stream.flush()
 
 
 def generate_autocomplete_response(prompt):
@@ -40,6 +188,10 @@ def key_to_prompt_text(key):
     return key
 
 
+def append_prompt_text(prompt_buffer, text):
+    prompt_buffer.extend(text)
+
+
 def update_prompt_buffer(prompt_buffer, key):
     if key == "KEY_BACKSPACE":
         if prompt_buffer:
@@ -50,7 +202,7 @@ def update_prompt_buffer(prompt_buffer, key):
     text = key_to_prompt_text(key)
 
     if text:
-        prompt_buffer.append(text)
+        append_prompt_text(prompt_buffer, text)
 
 
 def enqueue_write_output(write_queue, output):
@@ -69,26 +221,121 @@ def clear_queue(target_queue):
         target_queue.queue.clear()
 
 
-def stream_autocomplete_to_writer(prompt, write_queue, autocomplete_stop_event):
+def stream_autocomplete_to_writer(
+    prompt,
+    write_queue,
+    autocomplete_stop_event,
+    debug_display=None,
+    generated_text_callback=None,
+):
+    prompt_attempts = [
+        autocomplete.build_prompt(prompt),
+        autocomplete.build_retry_prompt(prompt),
+    ]
+
     try:
-        for chunk in autocomplete.generate_text_stream(
-            prompt,
-            stop_event=autocomplete_stop_event,
-        ):
-            if autocomplete_stop_event.is_set():
+        emitted_text = False
+        raw_reply_parts = []
+        attempt_started_at = None
+        attempt_number = None
+
+        for attempt_index, prompt_text in enumerate(prompt_attempts):
+            raw_reply_parts = []
+            attempt_number = attempt_index + 1
+
+            if debug_display is not None:
+                debug_display.llm_prompt(prompt_text)
+
+            attempt_started_at = time.monotonic()
+
+            for chunk in autocomplete.generate_text_stream(
+                prompt,
+                stop_event=autocomplete_stop_event,
+                raw_chunk_callback=(
+                    raw_reply_parts.append if debug_display is not None else None
+                ),
+                prompt_text=prompt_text,
+            ):
+                if autocomplete_stop_event.is_set():
+                    break
+
+                emitted_text = True
+
+                if generated_text_callback is not None:
+                    generated_text_callback(chunk)
+
+                if debug_display is not None:
+                    debug_display.autocomplete_out(chunk)
+                else:
+                    print(f"AUTOCOMPLETE OUT: {chunk!r}", flush=True)
+
+                enqueue_write_output(write_queue, chunk)
+
+            if debug_display is not None:
+                elapsed = time.monotonic() - attempt_started_at
+                debug_display.llm_reply(
+                    "".join(raw_reply_parts),
+                    partial=autocomplete_stop_event.is_set(),
+                )
+                debug_display.llm_response_time(
+                    elapsed,
+                    attempt_number,
+                    partial=autocomplete_stop_event.is_set(),
+                )
+
+            if emitted_text or autocomplete_stop_event.is_set():
                 break
 
-            print(f"AUTOCOMPLETE OUT: {chunk!r}", flush=True)
-            enqueue_write_output(write_queue, chunk)
+            if attempt_index < len(prompt_attempts) - 1:
+                if debug_display is not None:
+                    debug_display.autocomplete_status(
+                        "no writable continuation, retrying"
+                    )
+                else:
+                    print(
+                        "AUTOCOMPLETE: no writable continuation, retrying",
+                        flush=True,
+                    )
+
+        if not emitted_text and not autocomplete_stop_event.is_set():
+            if debug_display is not None:
+                debug_display.autocomplete_status("no writable continuation")
+            else:
+                print("AUTOCOMPLETE: no writable continuation", flush=True)
 
     except autocomplete.AutocompleteError as error:
-        print(f"AUTOCOMPLETE ERROR: {error}", flush=True)
+        if debug_display is not None and attempt_started_at is not None:
+            debug_display.llm_response_time(
+                time.monotonic() - attempt_started_at,
+                attempt_number,
+                partial=True,
+            )
+
+        if debug_display is not None and raw_reply_parts:
+            debug_display.llm_reply("".join(raw_reply_parts), partial=True)
+
+        if debug_display is not None:
+            debug_display.autocomplete_error(error)
+        else:
+            print(f"AUTOCOMPLETE ERROR: {error}", flush=True)
 
 
-def start_autocomplete_thread(prompt, write_queue, autocomplete_stop_event):
+def start_autocomplete_thread(
+    prompt,
+    write_queue,
+    autocomplete_stop_event,
+    debug_display=None,
+    generated_text_callback=None,
+):
     thread = threading.Thread(
         target=stream_autocomplete_to_writer,
-        args=(prompt, write_queue, autocomplete_stop_event),
+        args=(
+            prompt,
+            write_queue,
+            autocomplete_stop_event,
+            debug_display,
+            generated_text_callback,
+        ),
         name="autocomplete-generator",
         daemon=True,
     )
@@ -96,9 +343,12 @@ def start_autocomplete_thread(prompt, write_queue, autocomplete_stop_event):
     return thread
 
 
-def start_reader_thread(read_queue, stop_event):
+def start_reader_thread(read_queue, stop_event, debug=False):
+    # In debug mode the reader is mocked by read.debug_read_loop, so the Mac
+    # keyboard feeds the same queue that the Raspberry Pi matrix normally feeds.
+    target = read.debug_read_loop if debug else read.read_loop
     thread = threading.Thread(
-        target=read.read_loop,
+        target=target,
         args=(read_queue, stop_event),
         name="keyboard-reader",
         daemon=True,
@@ -107,10 +357,15 @@ def start_reader_thread(read_queue, stop_event):
     return thread
 
 
-def start_writer_thread(write_queue, stop_event):
+def start_writer_thread(write_queue, stop_event, debug=False, debug_echo=True):
+    # In debug mode the writer is mocked by write.debug_write_loop, so queued
+    # letters print to the terminal instead of enabling the mux bridge.
+    target = write.debug_write_loop if debug else write.write_loop
+    kwargs = {"echo": debug_echo} if debug else {}
     thread = threading.Thread(
-        target=write.write_loop,
+        target=target,
         args=(write_queue, stop_event),
+        kwargs=kwargs,
         name="keyboard-writer",
         daemon=True,
     )
@@ -118,7 +373,7 @@ def start_writer_thread(write_queue, stop_event):
     return thread
 
 
-def run_pipeline(read_queue, write_queue, stop_event):
+def run_pipeline(read_queue, write_queue, stop_event, debug_display=None):
     while not stop_event.is_set():
         try:
             key = read_queue.get(timeout=0.1)
@@ -126,17 +381,29 @@ def run_pipeline(read_queue, write_queue, stop_event):
             continue
 
         try:
-            print(f"READ: {key!r}", flush=True)
+            if debug_display is not None:
+                debug_display.read(key)
+            else:
+                print(f"READ: {key!r}", flush=True)
+
             output = process_read_key(key)
             enqueue_write_output(write_queue, output)
+
+            if debug_display is not None:
+                debug_display.typed_key(key)
         finally:
             read_queue.task_done()
 
 
-def run_autocomplete_pipeline(read_queue, write_queue, stop_event):
+def run_autocomplete_pipeline(read_queue, write_queue, stop_event, debug_display=None):
     prompt_buffer = []
+    prompt_buffer_lock = threading.Lock()
     autocomplete_thread = None
     autocomplete_stop_event = threading.Event()
+
+    def add_generated_text_to_prompt(chunk):
+        with prompt_buffer_lock:
+            append_prompt_text(prompt_buffer, chunk)
 
     while not stop_event.is_set():
         if autocomplete_thread is not None and not autocomplete_thread.is_alive():
@@ -149,11 +416,18 @@ def run_autocomplete_pipeline(read_queue, write_queue, stop_event):
             continue
 
         try:
-            print(f"READ: {key!r}", flush=True)
+            if debug_display is not None:
+                debug_display.read(key)
+            else:
+                print(f"READ: {key!r}", flush=True)
 
             if autocomplete_thread is not None:
                 if key == AUTOCOMPLETE_STOP_KEY:
-                    print("AUTOCOMPLETE: stopping", flush=True)
+                    if debug_display is not None:
+                        debug_display.autocomplete_status("stopping")
+                    else:
+                        print("AUTOCOMPLETE: stopping", flush=True)
+
                     autocomplete_stop_event.set()
                     clear_queue(write_queue)
                     autocomplete_thread.join(timeout=1)
@@ -163,24 +437,40 @@ def run_autocomplete_pipeline(read_queue, write_queue, stop_event):
                 continue
 
             if key == AUTOCOMPLETE_START_KEY:
-                prompt = "".join(prompt_buffer).strip()
+                with prompt_buffer_lock:
+                    prompt = "".join(prompt_buffer).strip()
 
                 if not prompt:
-                    print("AUTOCOMPLETE: prompt is empty", flush=True)
+                    if debug_display is not None:
+                        debug_display.autocomplete_status("prompt is empty")
+                    else:
+                        print("AUTOCOMPLETE: prompt is empty", flush=True)
+
                     continue
 
-                print(f"AUTOCOMPLETE PROMPT: {prompt!r}", flush=True)
+                if debug_display is not None:
+                    debug_display.autocomplete_prompt(prompt)
+                else:
+                    print(f"AUTOCOMPLETE PROMPT: {prompt!r}", flush=True)
+
                 autocomplete_stop_event.clear()
                 autocomplete_thread = start_autocomplete_thread(
                     prompt,
                     write_queue,
                     autocomplete_stop_event,
+                    debug_display=debug_display,
+                    generated_text_callback=add_generated_text_to_prompt,
                 )
                 continue
 
-            update_prompt_buffer(prompt_buffer, key)
+            with prompt_buffer_lock:
+                update_prompt_buffer(prompt_buffer, key)
+
             output = process_read_key(key)
             enqueue_write_output(write_queue, output)
+
+            if debug_display is not None:
+                debug_display.typed_key(key)
 
         finally:
             read_queue.task_done()
@@ -193,6 +483,11 @@ def parse_args():
         action="store_true",
         help="Start Gemma autocomplete with KEY_CODE and stop it with KEY_MODE",
     )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Use terminal keyboard/output mocks instead of Raspberry Pi GPIO",
+    )
 
     return parser.parse_args()
 
@@ -202,18 +497,49 @@ def main():
     read_queue = queue.Queue()
     write_queue = queue.Queue()
     stop_event = threading.Event()
-
-    reader_thread = start_reader_thread(read_queue, stop_event)
-    writer_thread = start_writer_thread(write_queue, stop_event)
+    debug_display = DebugTextDisplay() if args.debug else None
+    reader_thread = None
+    writer_thread = None
 
     try:
         print("Main pipeline running. Press Ctrl+C to stop.", flush=True)
 
+        if args.debug:
+            print(
+                "Debug mode: GPIO is not used. "
+                "Ctrl+G/F1 = KEY_CODE, Ctrl+O/F2 = KEY_MODE.",
+                flush=True,
+            )
+            print(
+                "Debug display: "
+                f"{debug_display.color('typed text', TYPED_COLOR)} / "
+                f"{debug_display.color('generated text', GENERATED_COLOR)}",
+                flush=True,
+            )
+
+        reader_thread = start_reader_thread(read_queue, stop_event, debug=args.debug)
+        writer_thread = start_writer_thread(
+            write_queue,
+            stop_event,
+            debug=args.debug,
+            debug_echo=debug_display is None,
+        )
+
         if args.autocomplete:
             print("Autocomplete mode: KEY_CODE starts, KEY_MODE stops.", flush=True)
-            run_autocomplete_pipeline(read_queue, write_queue, stop_event)
+            run_autocomplete_pipeline(
+                read_queue,
+                write_queue,
+                stop_event,
+                debug_display=debug_display,
+            )
         else:
-            run_pipeline(read_queue, write_queue, stop_event)
+            run_pipeline(
+                read_queue,
+                write_queue,
+                stop_event,
+                debug_display=debug_display,
+            )
 
     except KeyboardInterrupt:
         print("\nStopping...", flush=True)
@@ -221,8 +547,13 @@ def main():
     finally:
         stop_event.set()
         write_queue.put(None)
-        reader_thread.join(timeout=2)
-        writer_thread.join(timeout=2)
+
+        if reader_thread is not None:
+            reader_thread.join(timeout=2)
+
+        if writer_thread is not None:
+            writer_thread.join(timeout=2)
+
         print("Stopped.", flush=True)
 
 

@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 """Fast test program: continuously scan all row/column mux channels."""
 
+import select
+import sys
+import termios
 import time
+import tty
 
 ROW_EN = 2
 ROW_S0 = 3
@@ -50,6 +54,29 @@ KEYMAP_SHIFT = (
 )
 
 ACTIVE_PRESSES = {}
+
+READABLE_KEYS = {
+    key
+    for keymap in (KEYMAP, KEYMAP_SHIFT)
+    for row_keys in keymap
+    for key in row_keys
+    if key
+}
+
+# Debug key aliases used by main.py --debug. These let a normal Mac keyboard
+# produce the typewriter-only matrix keys without touching the GPIO hardware.
+DEBUG_CONTROL_KEYS = {
+    "\x07": "KEY_CODE",  # Ctrl+G starts autocomplete in main.py --autocomplete.
+    "\x0f": "KEY_MODE",  # Ctrl+O stops autocomplete.
+}
+
+DEBUG_ESCAPE_SEQUENCES = {
+    "\x1b[3~": "KEY_DELETE",
+    "\x1bOP": "KEY_CODE",  # F1, common terminal sequence.
+    "\x1b[11~": "KEY_CODE",
+    "\x1bOQ": "KEY_MODE",  # F2, common terminal sequence.
+    "\x1b[12~": "KEY_MODE",
+}
 
 
 def set_mux_channel(s0, s1, s2, channel):
@@ -189,6 +216,98 @@ def read_loop(output_queue, stop_event=None, rows=TARGET_ROWS, cols=TARGET_COLS)
 
     finally:
         cleanup_gpio()
+
+
+def read_escape_sequence():
+    sequence = "\x1b"
+
+    while select.select([sys.stdin], [], [], 0.01)[0]:
+        sequence += sys.stdin.read(1)
+
+        if sequence in DEBUG_ESCAPE_SEQUENCES:
+            return DEBUG_ESCAPE_SEQUENCES[sequence]
+
+        if len(sequence) >= 6:
+            break
+
+    return DEBUG_ESCAPE_SEQUENCES.get(sequence)
+
+
+def read_terminal_key():
+    key = sys.stdin.read(1)
+
+    if key == "":
+        raise EOFError
+
+    if key == "\x03":
+        raise KeyboardInterrupt
+
+    if key in DEBUG_CONTROL_KEYS:
+        return DEBUG_CONTROL_KEYS[key]
+
+    if key in ("\r", "\n"):
+        return "KEY_ENTER"
+
+    if key == "\t":
+        return "KEY_TAB"
+
+    if key in ("\x7f", "\b"):
+        return "KEY_BACKSPACE"
+
+    if key == "\x1b":
+        return read_escape_sequence()
+
+    return key
+
+
+def debug_read_loop(output_queue, stop_event=None):
+    """Mock the hardware reader with the computer keyboard.
+
+    This is only used by main.py --debug on a development machine. The normal
+    read_loop above still owns all Raspberry Pi GPIO setup and scanning.
+    """
+
+    print(
+        "Debug reader ready. Type normally. Ctrl+G/F1 = KEY_CODE, "
+        "Ctrl+O/F2 = KEY_MODE, Ctrl+C = stop.",
+        flush=True,
+    )
+
+    def read_until_stopped():
+        while stop_event is None or not stop_event.is_set():
+            if not select.select([sys.stdin], [], [], SCAN_DELAY)[0]:
+                continue
+
+            key = read_terminal_key()
+
+            if key is None:
+                continue
+
+            if key not in READABLE_KEYS:
+                print(f"DEBUG READ: ignoring unmapped key {key!r}", flush=True)
+                continue
+
+            output_queue.put(key)
+
+    try:
+        run_in_raw_terminal(read_until_stopped)
+    except (KeyboardInterrupt, EOFError):
+        if stop_event is not None:
+            stop_event.set()
+
+
+def run_in_raw_terminal(callback):
+    if not sys.stdin.isatty():
+        callback()
+        return
+
+    old_settings = termios.tcgetattr(sys.stdin)
+
+    try:
+        tty.setcbreak(sys.stdin.fileno())
+        callback()
+    finally:
+        termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
 
 
 def print_key_for_connection(row, col, shifted=False):

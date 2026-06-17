@@ -77,6 +77,17 @@ SPECIAL_KEYS = tuple(
 SPECIAL_KEY_SEPARATORS = {" ", "\t", "\n", "\r", ","}
 
 
+class NullOutput:
+    def write(self, text):
+        del text
+
+    def flush(self):
+        pass
+
+
+NULL_OUTPUT = NullOutput()
+
+
 def set_mux_channel(s0, s1, s2, channel):
     if channel < 0 or channel > 7:
         raise ValueError(f"Mux channel must be between 0 and 7, got {channel}")
@@ -215,6 +226,71 @@ def write_queue_item(item, bridge_time=BRIDGE_TIME, inter_key_delay=INTER_KEY_DE
         tokens = parse_key_tokens(str(item))
 
     write_tokens(tokens, bridge_time=bridge_time, inter_key_delay=inter_key_delay)
+
+
+def debug_write_token(token, output_stream=sys.stdout):
+    """Print one queued key token instead of driving the Raspberry Pi GPIO pins."""
+
+    if token == "KEY_ENTER":
+        output_stream.write("\n")
+    elif token == "KEY_TAB":
+        output_stream.write("\t")
+    elif token.startswith("KEY_"):
+        output_stream.write(f"[{token}]")
+    else:
+        output_stream.write(token)
+
+
+def debug_write_queue_item(item, output_stream=sys.stdout):
+    if item is None:
+        return
+
+    if isinstance(item, (list, tuple)):
+        tokens = item
+    elif item in KEY_POSITIONS:
+        tokens = [item]
+    else:
+        tokens = parse_key_tokens(str(item))
+
+    for token in tokens:
+        debug_write_token(token, output_stream=output_stream)
+
+    output_stream.flush()
+
+
+def debug_write_loop(input_queue, stop_event=None, bridge_time=BRIDGE_TIME, echo=True):
+    """Mock the hardware writer with terminal output.
+
+    This is only used by main.py --debug on a development machine. The normal
+    write_loop above still owns the active-low mux enable pin and GPIO bridge.
+    """
+
+    del bridge_time
+
+    if echo:
+        print("Debug writer ready. Output will be printed here.", flush=True)
+
+    while stop_event is None or not stop_event.is_set() or not input_queue.empty():
+        try:
+            item = input_queue.get(timeout=IDLE_POLL_DELAY)
+        except queue.Empty:
+            continue
+
+        try:
+            if item is None:
+                if stop_event is not None:
+                    stop_event.set()
+
+                break
+
+            debug_write_queue_item(
+                item,
+                output_stream=sys.stdout if echo else NULL_OUTPUT,
+            )
+
+        finally:
+            if hasattr(input_queue, "task_done"):
+                input_queue.task_done()
 
 
 def write_loop(input_queue, stop_event=None, bridge_time=BRIDGE_TIME):
