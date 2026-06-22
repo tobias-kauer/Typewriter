@@ -106,6 +106,16 @@ def format_pin_state(pin_name, pin_device, gpio_num=None):
     return f"{pin_label}={'HIGH' if pin_device.value else 'LOW'}"
 
 
+def format_selector_state(name, s0, s1, s2, channel, gpio_nums):
+    bits = f"{(channel >> 2) & 1}{(channel >> 1) & 1}{channel & 1}"
+    return (
+        f"{name}=channel {channel} (bits {bits}) | "
+        f"{format_pin_state(name + '_S2', s2, gpio_nums[2])}, "
+        f"{format_pin_state(name + '_S1', s1, gpio_nums[1])}, "
+        f"{format_pin_state(name + '_S0', s0, gpio_nums[0])}"
+    )
+
+
 def enable_reader_muxes(channel):
     set_mux_channel(ROW_S0_LINE, ROW_S1_LINE, ROW_S2_LINE, channel)
     set_mux_channel(COL_S0_LINE, COL_S1_LINE, COL_S2_LINE, channel)
@@ -114,15 +124,29 @@ def enable_reader_muxes(channel):
 
     print(f"Reader mux enabled on channel {channel}")
     print(
-        "Reader pin states:",
+        format_selector_state(
+            "ROW_SELECT",
+            ROW_S0_LINE,
+            ROW_S1_LINE,
+            ROW_S2_LINE,
+            channel,
+            (ROW_S0, ROW_S1, ROW_S2),
+        )
+    )
+    print(
+        format_selector_state(
+            "COL_SELECT",
+            COL_S0_LINE,
+            COL_S1_LINE,
+            COL_S2_LINE,
+            channel,
+            (COL_S0, COL_S1, COL_S2),
+        )
+    )
+    print(
+        "Reader enable lines:",
         format_pin_state("ROW_EN", ROW_EN_LINE, ROW_EN),
-        format_pin_state("ROW_S0", ROW_S0_LINE, ROW_S0),
-        format_pin_state("ROW_S1", ROW_S1_LINE, ROW_S1),
-        format_pin_state("ROW_S2", ROW_S2_LINE, ROW_S2),
         format_pin_state("COL_EN", COL_EN_LINE, COL_EN),
-        format_pin_state("COL_S0", COL_S0_LINE, COL_S0),
-        format_pin_state("COL_S1", COL_S1_LINE, COL_S1),
-        format_pin_state("COL_S2", COL_S2_LINE, COL_S2),
     )
 
 
@@ -135,14 +159,28 @@ def enable_writer_muxes(channel):
 
     print(f"Writer mux enabled on channel {channel}")
     print(
-        "Writer pin states:",
+        format_selector_state(
+            "WRITE_ROW_SELECT",
+            WRITE_ROW_S0_LINE,
+            WRITE_ROW_S1_LINE,
+            WRITE_ROW_S2_LINE,
+            channel,
+            (WRITE_ROW_S0, WRITE_ROW_S1, WRITE_ROW_S2),
+        )
+    )
+    print(
+        format_selector_state(
+            "WRITE_COL_SELECT",
+            WRITE_COL_S0_LINE,
+            WRITE_COL_S1_LINE,
+            WRITE_COL_S2_LINE,
+            channel,
+            (WRITE_COL_S0, WRITE_COL_S1, WRITE_COL_S2),
+        )
+    )
+    print(
+        "Writer enable lines:",
         format_pin_state("MUX_EN", MUX_EN_LINE, MUX_EN),
-        format_pin_state("ROW_S0", WRITE_ROW_S0_LINE, WRITE_ROW_S0),
-        format_pin_state("ROW_S1", WRITE_ROW_S1_LINE, WRITE_ROW_S1),
-        format_pin_state("ROW_S2", WRITE_ROW_S2_LINE, WRITE_ROW_S2),
-        format_pin_state("COL_S0", WRITE_COL_S0_LINE, WRITE_COL_S0),
-        format_pin_state("COL_S1", WRITE_COL_S1_LINE, WRITE_COL_S1),
-        format_pin_state("COL_S2", WRITE_COL_S2_LINE, WRITE_COL_S2),
         format_pin_state("SHIFT", SHIFT_LINE, SHIFT_PIN) if USE_SHIFT_PIN else "SHIFT=unused",
     )
 
