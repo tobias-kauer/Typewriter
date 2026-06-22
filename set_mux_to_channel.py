@@ -101,12 +101,28 @@ def set_mux_channel(s0, s1, s2, channel):
     s2.value = (channel >> 2) & 1
 
 
+def format_pin_state(pin_name, pin_device):
+    return f"{pin_name}={'HIGH' if pin_device.value else 'LOW'}"
+
+
 def enable_reader_muxes(channel):
     set_mux_channel(ROW_S0_LINE, ROW_S1_LINE, ROW_S2_LINE, channel)
     set_mux_channel(COL_S0_LINE, COL_S1_LINE, COL_S2_LINE, channel)
     ROW_EN_LINE.off()
     COL_EN_LINE.off()
+
     print(f"Reader mux enabled on channel {channel}")
+    print(
+        "Reader pin states:",
+        format_pin_state("ROW_EN", ROW_EN_LINE),
+        format_pin_state("ROW_S0", ROW_S0_LINE),
+        format_pin_state("ROW_S1", ROW_S1_LINE),
+        format_pin_state("ROW_S2", ROW_S2_LINE),
+        format_pin_state("COL_EN", COL_EN_LINE),
+        format_pin_state("COL_S0", COL_S0_LINE),
+        format_pin_state("COL_S1", COL_S1_LINE),
+        format_pin_state("COL_S2", COL_S2_LINE),
+    )
 
 
 def enable_writer_muxes(channel):
@@ -115,7 +131,19 @@ def enable_writer_muxes(channel):
     if USE_SHIFT_PIN:
         SHIFT_LINE.on()
     MUX_EN_LINE.off()
+
     print(f"Writer mux enabled on channel {channel}")
+    print(
+        "Writer pin states:",
+        format_pin_state("MUX_EN", MUX_EN_LINE),
+        format_pin_state("ROW_S0", WRITE_ROW_S0_LINE),
+        format_pin_state("ROW_S1", WRITE_ROW_S1_LINE),
+        format_pin_state("ROW_S2", WRITE_ROW_S2_LINE),
+        format_pin_state("COL_S0", WRITE_COL_S0_LINE),
+        format_pin_state("COL_S1", WRITE_COL_S1_LINE),
+        format_pin_state("COL_S2", WRITE_COL_S2_LINE),
+        format_pin_state("SHIFT", SHIFT_LINE) if USE_SHIFT_PIN else "SHIFT=unused",
+    )
 
 
 def interactive_loop(mode):
