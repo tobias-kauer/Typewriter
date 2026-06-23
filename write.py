@@ -14,10 +14,12 @@ MUX_EN = 7
 ROW_S0 = 15
 ROW_S1 = 18
 ROW_S2 = 23
+ROW_S3 = 5
 
 COL_S0 = 24
 COL_S1 = 25
 COL_S2 = 8
+COL_S3 = 6
 
 SHIFT_PIN = 1
 USE_SHIFT_PIN = True
@@ -88,13 +90,16 @@ class NullOutput:
 NULL_OUTPUT = NullOutput()
 
 
-def set_mux_channel(s0, s1, s2, channel):
-    if channel < 0 or channel > 7:
-        raise ValueError(f"Mux channel must be between 0 and 7, got {channel}")
+def set_mux_channel(s0, s1, s2, channel, s3=None):
+    if channel < 0 or channel > 15:
+        raise ValueError(f"Mux channel must be between 0 and 15, got {channel}")
 
     s0.value = (channel >> 0) & 1
     s1.value = (channel >> 1) & 1
     s2.value = (channel >> 2) & 1
+
+    if s3 is not None:
+        s3.value = (channel >> 3) & 1
 
 
 def set_mux_bridge_active(active):
@@ -131,8 +136,8 @@ def bridge_channels(row, col, bridge_time=BRIDGE_TIME, shifted=False):
     try:
         set_shift(shifted)
 
-        set_mux_channel(ROW_S0_LINE, ROW_S1_LINE, ROW_S2_LINE, row)
-        set_mux_channel(COL_S0_LINE, COL_S1_LINE, COL_S2_LINE, col)
+        set_mux_channel(ROW_S0_LINE, ROW_S1_LINE, ROW_S2_LINE, row, ROW_S3_LINE)
+        set_mux_channel(COL_S0_LINE, COL_S1_LINE, COL_S2_LINE, col, COL_S3_LINE)
 
         time.sleep(SETTLE_DELAY)
         set_mux_bridge_active(True)
@@ -401,8 +406,8 @@ def setup_gpio():
     from gpiozero import OutputDevice
 
     global MUX_EN_LINE
-    global ROW_S0_LINE, ROW_S1_LINE, ROW_S2_LINE
-    global COL_S0_LINE, COL_S1_LINE, COL_S2_LINE
+    global ROW_S0_LINE, ROW_S1_LINE, ROW_S2_LINE, ROW_S3_LINE
+    global COL_S0_LINE, COL_S1_LINE, COL_S2_LINE, COL_S3_LINE
     global SHIFT_LINE
 
     MUX_EN_LINE = OutputDevice(MUX_EN, initial_value=True)
@@ -411,10 +416,12 @@ def setup_gpio():
     ROW_S0_LINE = OutputDevice(ROW_S0, initial_value=False)
     ROW_S1_LINE = OutputDevice(ROW_S1, initial_value=False)
     ROW_S2_LINE = OutputDevice(ROW_S2, initial_value=False)
+    ROW_S3_LINE = OutputDevice(ROW_S3, initial_value=False)
 
     COL_S0_LINE = OutputDevice(COL_S0, initial_value=False)
     COL_S1_LINE = OutputDevice(COL_S1, initial_value=False)
     COL_S2_LINE = OutputDevice(COL_S2, initial_value=False)
+    COL_S3_LINE = OutputDevice(COL_S3, initial_value=False)
 
     if USE_SHIFT_PIN:
         SHIFT_LINE = OutputDevice(SHIFT_PIN, initial_value=True)
