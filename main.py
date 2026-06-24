@@ -57,6 +57,16 @@ class DebugTextDisplay:
             self._log("AUTOCOMPLETE PROMPT", repr(prompt), AUTOCOMPLETE_COLOR)
             self._render_text()
 
+    def llm_config(self, mode, model):
+        """Display LLM mode and model being used."""
+        config_msg = f"mode={mode}, model={model}"
+        self.log("LLM CONFIG", config_msg, LLM_COLOR)
+
+    def llm_backend(self, backend):
+        """Display which backend is actually processing the prompt."""
+        backend_msg = f"using {backend} backend"
+        self.log("LLM BACKEND", backend_msg, LLM_COLOR)
+
     def llm_prompt(self, prompt):
         with self.lock:
             self._block("LLM PROMPT SENT", prompt, LLM_COLOR)
@@ -255,6 +265,12 @@ def stream_autocomplete_to_writer(
                     raw_reply_parts.append if debug_display is not None else None
                 ),
                 prompt_text=prompt_text,
+                mode=autocomplete.ACTIVE_MODE,
+                api_key=autocomplete.OPENAI_API_KEY,
+                openai_model=autocomplete.OPENAI_MODEL,
+                backend_callback=(
+                    debug_display.llm_backend if debug_display is not None else None
+                ),
             ):
                 if autocomplete_stop_event.is_set():
                     break
@@ -450,6 +466,7 @@ def run_autocomplete_pipeline(read_queue, write_queue, stop_event, debug_display
 
                 if debug_display is not None:
                     debug_display.autocomplete_prompt(prompt)
+                    debug_display.llm_config(autocomplete.ACTIVE_MODE, autocomplete.OPENAI_MODEL)
                 else:
                     print(f"AUTOCOMPLETE PROMPT: {prompt!r}", flush=True)
 
@@ -527,6 +544,8 @@ def main():
 
         if args.autocomplete:
             print("Autocomplete mode: KEY_CODE starts, KEY_MODE stops.", flush=True)
+            # Load API key from .env file if available
+            autocomplete.load_env()
             run_autocomplete_pipeline(
                 read_queue,
                 write_queue,

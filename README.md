@@ -58,6 +58,51 @@ TARGET_ROWS = list(range(ROW_COUNT))
 TARGET_COLS = list(range(COL_COUNT))
 ```
 
+## Autocomplete Configuration
+
+The autocomplete feature supports three modes: **local** (Ollama), **server** (OpenAI), and **hybrid** (fallback). API keys are stored in a `.env` file (not tracked by git) to keep secrets secure.
+
+### Setup
+
+1. Copy the example environment file:
+   ```bash
+   cp .env.example .env
+   ```
+
+2. Edit `.env` and add your OpenAI API key:
+   ```
+   OPENAI_API_KEY=sk-your-actual-api-key-here
+   OPENAI_MODEL=gpt-5-mini
+   ```
+
+3. The `.env` file is automatically excluded from git (see `.gitignore`).
+
+### Usage
+
+**Interactive mode selection:**
+```bash
+python3 main.py --autocomplete --debug
+```
+The system will load your API key from `.env` automatically.
+
+**Command-line mode selection:**
+```bash
+# Local mode (no API key needed)
+python3 main.py --autocomplete --debug
+
+# Server mode (API key from .env)
+python3 main.py --autocomplete --debug
+
+# Hybrid mode (API key from .env, falls back to local)
+python3 main.py --autocomplete --debug
+```
+
+### Modes
+
+- **local**: Uses Ollama on `localhost:11434` with `gemma3:1b` (no internet required)
+- **server**: Uses OpenAI ChatGPT API with API key from `.env`
+- **hybrid**: Tries OpenAI with 5-second timeout, falls back to local Ollama on failure
+
 ## Usage
 
 Run the scanner:
