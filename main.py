@@ -30,12 +30,12 @@ LLM_COLOR = "\033[38;5;183m"
 ERROR_COLOR = "\033[38;5;203m"
 
 
-class DebugTextDisplay:
-    """Terminal-only display for main.py --debug.
+class TerminalTextDisplay:
+    """Terminal-only display for typed text, autocomplete, and LLM status.
 
-    The Raspberry Pi path still uses read.py and write.py directly. This class
-    only keeps the Mac debug run readable by showing the whole text buffer after
-    every visible change.
+    The input/output backend is selected separately. In hardware mode this
+    mirrors the typewriter activity in the terminal; in debug mode it shows the
+    same activity while read.py/write.py use terminal mocks.
     """
 
     def __init__(self, output_stream=sys.stdout, use_color=None):
@@ -620,7 +620,7 @@ def main():
     read_queue = queue.Queue()
     write_queue = queue.Queue()
     stop_event = threading.Event()
-    debug_display = DebugTextDisplay() if args.debug else None
+    terminal_display = TerminalTextDisplay() if args.debug or args.autocomplete else None
     reader_thread = None
     writer_thread = None
 
@@ -639,9 +639,21 @@ def main():
                 flush=True,
             )
             print(
-                "Debug display: "
-                f"{debug_display.color('typed text', TYPED_COLOR)} / "
-                f"{debug_display.color('generated text', GENERATED_COLOR)}",
+                "Terminal display: "
+                f"{terminal_display.color('typed text', TYPED_COLOR)} / "
+                f"{terminal_display.color('generated text', GENERATED_COLOR)}",
+                flush=True,
+            )
+        elif args.autocomplete:
+            print(
+                "Hardware mode: using read.py/write.py for keys; "
+                "terminal display is active.",
+                flush=True,
+            )
+            print(
+                "Terminal display: "
+                f"{terminal_display.color('typed text', TYPED_COLOR)} / "
+                f"{terminal_display.color('generated text', GENERATED_COLOR)}",
                 flush=True,
             )
 
@@ -650,7 +662,7 @@ def main():
             write_queue,
             stop_event,
             debug=args.debug,
-            debug_echo=debug_display is None,
+            debug_echo=terminal_display is None,
         )
 
         if args.autocomplete:
@@ -669,7 +681,7 @@ def main():
                 read_queue,
                 write_queue,
                 stop_event,
-                debug_display=debug_display,
+                debug_display=terminal_display,
                 sessions_enabled=args.sessions,
             )
         else:
@@ -677,7 +689,7 @@ def main():
                 read_queue,
                 write_queue,
                 stop_event,
-                debug_display=debug_display,
+                debug_display=terminal_display,
             )
 
     except KeyboardInterrupt:

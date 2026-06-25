@@ -26,9 +26,9 @@ USE_SHIFT_PIN = True
 
 BRIDGE_TIME = 0.05
 INTER_KEY_DELAY = 0.05
-SETTLE_DELAY = 0.002
+SETTLE_DELAY = 0.00002
 # Time for row/column select lines to settle before enabling the mux bridge.
-MUX_CHANNEL_DELAY = 0.1
+MUX_CHANNEL_DELAY = 0.2
 IDLE_POLL_DELAY = 0.01
 
 KEYMAP = (
