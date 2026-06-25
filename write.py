@@ -27,6 +27,8 @@ USE_SHIFT_PIN = True
 BRIDGE_TIME = 0.05
 INTER_KEY_DELAY = 0.05
 SETTLE_DELAY = 0.00002
+# Time for row/column select lines to settle before enabling the mux bridge.
+MUX_CHANNEL_DELAY = 0.002
 IDLE_POLL_DELAY = 0.01
 
 KEYMAP = (
@@ -130,7 +132,13 @@ def wait_with_mux_idle(seconds):
         time.sleep(seconds)
 
 
-def bridge_channels(row, col, bridge_time=BRIDGE_TIME, shifted=False):
+def bridge_channels(
+    row,
+    col,
+    bridge_time=BRIDGE_TIME,
+    shifted=False,
+    mux_channel_delay=MUX_CHANNEL_DELAY,
+):
     set_mux_bridge_active(False)
 
     try:
@@ -139,7 +147,7 @@ def bridge_channels(row, col, bridge_time=BRIDGE_TIME, shifted=False):
         set_mux_channel(ROW_S0_LINE, ROW_S1_LINE, ROW_S2_LINE, row, ROW_S3_LINE)
         set_mux_channel(COL_S0_LINE, COL_S1_LINE, COL_S2_LINE, col, COL_S3_LINE)
 
-        time.sleep(SETTLE_DELAY)
+        time.sleep(mux_channel_delay)
         set_mux_bridge_active(True)
         time.sleep(bridge_time)
     finally:
@@ -153,9 +161,15 @@ def get_key_position(key):
     return KEY_POSITIONS[key]
 
 
-def write_key(key, bridge_time=BRIDGE_TIME):
+def write_key(key, bridge_time=BRIDGE_TIME, mux_channel_delay=MUX_CHANNEL_DELAY):
     row, col, shifted = get_key_position(key)
-    bridge_channels(row, col, bridge_time=bridge_time, shifted=shifted)
+    bridge_channels(
+        row,
+        col,
+        bridge_time=bridge_time,
+        shifted=shifted,
+        mux_channel_delay=mux_channel_delay,
+    )
 
 
 def special_key_at(text, index):
@@ -197,12 +211,21 @@ def parse_key_tokens(text):
     return tokens
 
 
-def write_tokens(tokens, bridge_time=BRIDGE_TIME, inter_key_delay=INTER_KEY_DELAY):
+def write_tokens(
+    tokens,
+    bridge_time=BRIDGE_TIME,
+    inter_key_delay=INTER_KEY_DELAY,
+    mux_channel_delay=MUX_CHANNEL_DELAY,
+):
     try:
         wait_with_mux_idle(SETTLE_DELAY)
 
         for index, token in enumerate(tokens):
-            write_key(token, bridge_time=bridge_time)
+            write_key(
+                token,
+                bridge_time=bridge_time,
+                mux_channel_delay=mux_channel_delay,
+            )
 
             if index < len(tokens) - 1:
                 wait_with_mux_idle(inter_key_delay)
@@ -211,15 +234,26 @@ def write_tokens(tokens, bridge_time=BRIDGE_TIME, inter_key_delay=INTER_KEY_DELA
         wait_with_mux_idle(SETTLE_DELAY)
 
 
-def write_letters(text, bridge_time=BRIDGE_TIME, inter_key_delay=INTER_KEY_DELAY):
+def write_letters(
+    text,
+    bridge_time=BRIDGE_TIME,
+    inter_key_delay=INTER_KEY_DELAY,
+    mux_channel_delay=MUX_CHANNEL_DELAY,
+):
     write_tokens(
         parse_key_tokens(text),
         bridge_time=bridge_time,
         inter_key_delay=inter_key_delay,
+        mux_channel_delay=mux_channel_delay,
     )
 
 
-def write_queue_item(item, bridge_time=BRIDGE_TIME, inter_key_delay=INTER_KEY_DELAY):
+def write_queue_item(
+    item,
+    bridge_time=BRIDGE_TIME,
+    inter_key_delay=INTER_KEY_DELAY,
+    mux_channel_delay=MUX_CHANNEL_DELAY,
+):
     if item is None:
         return
 
@@ -230,7 +264,12 @@ def write_queue_item(item, bridge_time=BRIDGE_TIME, inter_key_delay=INTER_KEY_DE
     else:
         tokens = parse_key_tokens(str(item))
 
-    write_tokens(tokens, bridge_time=bridge_time, inter_key_delay=inter_key_delay)
+    write_tokens(
+        tokens,
+        bridge_time=bridge_time,
+        inter_key_delay=inter_key_delay,
+        mux_channel_delay=mux_channel_delay,
+    )
 
 
 def debug_write_token(token, output_stream=sys.stdout):
@@ -298,7 +337,12 @@ def debug_write_loop(input_queue, stop_event=None, bridge_time=BRIDGE_TIME, echo
                 input_queue.task_done()
 
 
-def write_loop(input_queue, stop_event=None, bridge_time=BRIDGE_TIME):
+def write_loop(
+    input_queue,
+    stop_event=None,
+    bridge_time=BRIDGE_TIME,
+    mux_channel_delay=MUX_CHANNEL_DELAY,
+):
     setup_gpio()
 
     try:
@@ -317,7 +361,11 @@ def write_loop(input_queue, stop_event=None, bridge_time=BRIDGE_TIME):
 
                     break
 
-                write_queue_item(item, bridge_time=bridge_time)
+                write_queue_item(
+                    item,
+                    bridge_time=bridge_time,
+                    mux_channel_delay=mux_channel_delay,
+                )
 
             finally:
                 if hasattr(input_queue, "task_done"):
@@ -327,9 +375,18 @@ def write_loop(input_queue, stop_event=None, bridge_time=BRIDGE_TIME):
         cleanup_gpio()
 
 
-def write_key_forever(key, bridge_time=BRIDGE_TIME, inter_key_delay=INTER_KEY_DELAY):
+def write_key_forever(
+    key,
+    bridge_time=BRIDGE_TIME,
+    inter_key_delay=INTER_KEY_DELAY,
+    mux_channel_delay=MUX_CHANNEL_DELAY,
+):
     while True:
-        write_key(key, bridge_time=bridge_time)
+        write_key(
+            key,
+            bridge_time=bridge_time,
+            mux_channel_delay=mux_channel_delay,
+        )
         wait_with_mux_idle(inter_key_delay)
 
 
@@ -367,7 +424,10 @@ def read_terminal_key():
     return key
 
 
-def listen_for_keypresses(bridge_time=BRIDGE_TIME):
+def listen_for_keypresses(
+    bridge_time=BRIDGE_TIME,
+    mux_channel_delay=MUX_CHANNEL_DELAY,
+):
     print("Listening. Press Ctrl+C to stop.")
 
     while True:
@@ -385,7 +445,11 @@ def listen_for_keypresses(bridge_time=BRIDGE_TIME):
             print(f"Ignoring unmapped key: {key!r}")
             continue
 
-        write_key(key, bridge_time=bridge_time)
+        write_key(
+            key,
+            bridge_time=bridge_time,
+            mux_channel_delay=mux_channel_delay,
+        )
 
 
 def run_in_raw_terminal(callback):
@@ -461,6 +525,12 @@ def parse_args():
         help="Seconds to wait between letters",
     )
     parser.add_argument(
+        "--mux-channel-delay",
+        type=float,
+        default=MUX_CHANNEL_DELAY,
+        help="Seconds to wait after selecting mux channels before enabling the bridge",
+    )
+    parser.add_argument(
         "--repeat-one",
         action="store_true",
         help="Keep writing the first given letter until stopped",
@@ -512,6 +582,7 @@ def main():
                 tokens[0],
                 bridge_time=args.bridge_time,
                 inter_key_delay=args.key_delay,
+                mux_channel_delay=args.mux_channel_delay,
             )
 
         if text:
@@ -519,12 +590,18 @@ def main():
                 text,
                 bridge_time=args.bridge_time,
                 inter_key_delay=args.key_delay,
+                mux_channel_delay=args.mux_channel_delay,
             )
 
             if args.write_once:
                 return
 
-        run_in_raw_terminal(lambda: listen_for_keypresses(bridge_time=args.bridge_time))
+        run_in_raw_terminal(
+            lambda: listen_for_keypresses(
+                bridge_time=args.bridge_time,
+                mux_channel_delay=args.mux_channel_delay,
+            )
+        )
 
     except KeyboardInterrupt:
         print("\nStopped by user")
