@@ -6,6 +6,7 @@ import queue
 import sys
 import threading
 import time
+from datetime import datetime
 
 import autocomplete
 import read
@@ -13,6 +14,9 @@ import write
 
 AUTOCOMPLETE_START_KEY = "KEY_CODE"
 AUTOCOMPLETE_STOP_KEY = "KEY_MODE"
+SESSION_START_TEXTS = (
+    "Review #{session} - {timestamp}\n ",
+)
 
 RESET = "\033[0m"
 BOLD = "\033[1m"
@@ -20,6 +24,7 @@ DIM = "\033[2m"
 READ_COLOR = "\033[38;5;245m"
 TYPED_COLOR = "\033[38;5;39m"
 GENERATED_COLOR = "\033[38;5;114m"
+SESSION_COLOR = "\033[38;5;45m"
 AUTOCOMPLETE_COLOR = "\033[38;5;221m"
 LLM_COLOR = "\033[38;5;183m"
 ERROR_COLOR = "\033[38;5;203m"
@@ -104,6 +109,16 @@ class DebugTextDisplay:
             self._log("AUTOCOMPLETE", message, AUTOCOMPLETE_COLOR)
             self._render_text()
 
+    def session_start(self, session_number, start_text):
+        with self.lock:
+            self.segments = []
+            self._log("SESSION", f"start {session_number}", SESSION_COLOR)
+
+            if start_text:
+                self._append_text("session", start_text)
+
+            self._render_text()
+
     def typed_key(self, key):
         text = key_to_prompt_text(key)
 
@@ -159,7 +174,7 @@ class DebugTextDisplay:
             return
 
         rendered = "".join(
-            self.color(text, TYPED_COLOR if source == "typed" else GENERATED_COLOR)
+            self.color(text, self._segment_color(source))
             for source, text in self.segments
         )
         rendered = rendered.replace("\t", "    ")
@@ -169,6 +184,15 @@ class DebugTextDisplay:
 
         print(file=self.output_stream)
         self.output_stream.flush()
+
+    def _segment_color(self, source):
+        if source == "typed":
+            return TYPED_COLOR
+
+        if source == "generated":
+            return GENERATED_COLOR
+
+        return SESSION_COLOR
 
 
 def generate_autocomplete_response(prompt):
@@ -231,6 +255,20 @@ def clear_queue(target_queue):
         target_queue.queue.clear()
 
 
+def build_session_start_text(session_number):
+    if not SESSION_START_TEXTS:
+        return ""
+
+    started_at = datetime.now()
+    template = SESSION_START_TEXTS[(session_number - 1) % len(SESSION_START_TEXTS)]
+    return template.format(
+        session=session_number,
+        date=started_at.strftime("%Y-%m-%d"),
+        exact_time=started_at.strftime("%H:%M:%S"),
+        timestamp=started_at.strftime("%Y-%m-%d %H:%M:%S"),
+    )
+
+
 def stream_autocomplete_to_writer(
     prompt,
     write_queue,
@@ -277,8 +315,11 @@ def stream_autocomplete_to_writer(
 
                 emitted_text = True
 
-                if generated_text_callback is not None:
-                    generated_text_callback(chunk)
+                if (
+                    generated_text_callback is not None
+                    and generated_text_callback(chunk) is False
+                ):
+                    continue
 
                 if debug_display is not None:
                     debug_display.autocomplete_out(chunk)
@@ -411,20 +452,70 @@ def run_pipeline(read_queue, write_queue, stop_event, debug_display=None):
             read_queue.task_done()
 
 
-def run_autocomplete_pipeline(read_queue, write_queue, stop_event, debug_display=None):
+def run_autocomplete_pipeline(
+    read_queue,
+    write_queue,
+    stop_event,
+    debug_display=None,
+    sessions_enabled=False,
+):
     prompt_buffer = []
     prompt_buffer_lock = threading.Lock()
     autocomplete_thread = None
     autocomplete_stop_event = threading.Event()
+    current_session_number = 0
 
-    def add_generated_text_to_prompt(chunk):
+    def add_generated_text_to_prompt(chunk, session_number=None):
         with prompt_buffer_lock:
+            if session_number is not None and session_number != current_session_number:
+                return False
+
             append_prompt_text(prompt_buffer, chunk)
+
+        return True
+
+    def stop_autocomplete(status_message):
+        nonlocal autocomplete_stop_event, autocomplete_thread
+
+        if autocomplete_thread is None:
+            return
+
+        if debug_display is not None:
+            debug_display.autocomplete_status(status_message)
+        else:
+            print(f"AUTOCOMPLETE: {status_message}", flush=True)
+
+        autocomplete_stop_event.set()
+        clear_queue(write_queue)
+        autocomplete_thread.join(timeout=1)
+        autocomplete_thread = None
+        autocomplete_stop_event = threading.Event()
+
+    def start_session():
+        nonlocal current_session_number
+
+        current_session_number += 1
+
+        with prompt_buffer_lock:
+            prompt_buffer.clear()
+
+        start_text = build_session_start_text(current_session_number)
+
+        if start_text:
+            enqueue_write_output(write_queue, start_text)
+
+        if debug_display is not None:
+            debug_display.session_start(current_session_number, start_text)
+        else:
+            print(f"SESSION: start {current_session_number}", flush=True)
+
+    if sessions_enabled:
+        start_session()
 
     while not stop_event.is_set():
         if autocomplete_thread is not None and not autocomplete_thread.is_alive():
             autocomplete_thread = None
-            autocomplete_stop_event.clear()
+            autocomplete_stop_event = threading.Event()
 
         try:
             key = read_queue.get(timeout=0.1)
@@ -437,18 +528,15 @@ def run_autocomplete_pipeline(read_queue, write_queue, stop_event, debug_display
             else:
                 print(f"READ: {key!r}", flush=True)
 
+            if sessions_enabled and key == AUTOCOMPLETE_STOP_KEY:
+                stop_autocomplete("ending session")
+                clear_queue(write_queue)
+                start_session()
+                continue
+
             if autocomplete_thread is not None:
                 if key == AUTOCOMPLETE_STOP_KEY:
-                    if debug_display is not None:
-                        debug_display.autocomplete_status("stopping")
-                    else:
-                        print("AUTOCOMPLETE: stopping", flush=True)
-
-                    autocomplete_stop_event.set()
-                    clear_queue(write_queue)
-                    autocomplete_thread.join(timeout=1)
-                    autocomplete_thread = None
-                    autocomplete_stop_event.clear()
+                    stop_autocomplete("stopping")
 
                 continue
 
@@ -471,12 +559,20 @@ def run_autocomplete_pipeline(read_queue, write_queue, stop_event, debug_display
                     print(f"AUTOCOMPLETE PROMPT: {prompt!r}", flush=True)
 
                 autocomplete_stop_event.clear()
+                if sessions_enabled:
+                    generated_text_callback = (
+                        lambda chunk, session_number=current_session_number:
+                        add_generated_text_to_prompt(chunk, session_number)
+                    )
+                else:
+                    generated_text_callback = add_generated_text_to_prompt
+
                 autocomplete_thread = start_autocomplete_thread(
                     prompt,
                     write_queue,
                     autocomplete_stop_event,
                     debug_display=debug_display,
-                    generated_text_callback=add_generated_text_to_prompt,
+                    generated_text_callback=generated_text_callback,
                 )
                 continue
 
@@ -505,8 +601,18 @@ def parse_args():
         action="store_true",
         help="Use terminal keyboard/output mocks instead of Raspberry Pi GPIO",
     )
+    parser.add_argument(
+        "--sessions",
+        action="store_true",
+        help="Debug-only session loop for autocomplete mode",
+    )
 
-    return parser.parse_args()
+    args = parser.parse_args()
+
+    if args.sessions and not (args.autocomplete and args.debug):
+        parser.error("--sessions is only supported with --autocomplete --debug")
+
+    return args
 
 
 def main():
@@ -522,9 +628,14 @@ def main():
         print("Main pipeline running. Press Ctrl+C to stop.", flush=True)
 
         if args.debug:
+            key_mode_action = (
+                "ends the current session"
+                if args.sessions
+                else "stops autocomplete"
+            )
             print(
                 "Debug mode: GPIO is not used. "
-                "Ctrl+G/F1 = KEY_CODE, Ctrl+O/F2 = KEY_MODE.",
+                f"Ctrl+G/F1 = KEY_CODE, Ctrl+X = KEY_MODE ({key_mode_action}).",
                 flush=True,
             )
             print(
@@ -543,7 +654,15 @@ def main():
         )
 
         if args.autocomplete:
-            print("Autocomplete mode: KEY_CODE starts, KEY_MODE stops.", flush=True)
+            if args.sessions:
+                print(
+                    "Autocomplete sessions mode: "
+                    "KEY_CODE starts autocomplete, KEY_MODE starts a new session.",
+                    flush=True,
+                )
+            else:
+                print("Autocomplete mode: KEY_CODE starts, KEY_MODE stops.", flush=True)
+
             # Load API key from .env file if available
             autocomplete.load_env()
             run_autocomplete_pipeline(
@@ -551,6 +670,7 @@ def main():
                 write_queue,
                 stop_event,
                 debug_display=debug_display,
+                sessions_enabled=args.sessions,
             )
         else:
             run_pipeline(

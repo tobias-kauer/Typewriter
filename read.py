@@ -69,7 +69,7 @@ READABLE_KEYS = {
 # produce the typewriter-only matrix keys without touching the GPIO hardware.
 DEBUG_CONTROL_KEYS = {
     "\x07": "KEY_CODE",  # Ctrl+G starts autocomplete in main.py --autocomplete.
-    "\x0f": "KEY_MODE",  # Ctrl+O stops autocomplete.
+    "\x18": "KEY_MODE",  # Ctrl+X stops autocomplete / starts a new session.
 }
 
 DEBUG_ESCAPE_SEQUENCES = {
@@ -274,7 +274,7 @@ def debug_read_loop(output_queue, stop_event=None):
 
     print(
         "Debug reader ready. Type normally. Ctrl+G/F1 = KEY_CODE, "
-        "Ctrl+O/F2 = KEY_MODE, Ctrl+C = stop.",
+        "Ctrl+X = KEY_MODE, Ctrl+C = stop.",
         flush=True,
     )
 
