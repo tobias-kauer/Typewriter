@@ -17,6 +17,13 @@ AUTOCOMPLETE_STOP_KEY = "KEY_MODE"
 SESSION_START_TEXTS = (
     "KEY_ENTER KEY_ENTER Review No. {session} - {timestamp} KEY_ENTER KEY_ENTER",
 )
+TIMED_AUTOCOMPLETE_IDLE_RULES = (
+    (100, 8.0),
+    (250, 6.0),
+    (500, 4.0),
+    (750, 2.0),
+)
+TIMED_SESSION_END_IDLE_SECONDS = 30.0
 
 RESET = "\033[0m"
 BOLD = "\033[1m"
@@ -239,6 +246,20 @@ def key_to_prompt_text(key):
 
 def append_prompt_text(prompt_buffer, text):
     prompt_buffer.extend(text)
+
+
+def count_written_text_chars(text):
+    return sum(1 for char in text if char not in "\n\r")
+
+
+def timed_autocomplete_idle_seconds(written_chars):
+    idle_seconds = None
+
+    for min_chars, seconds in TIMED_AUTOCOMPLETE_IDLE_RULES:
+        if written_chars >= min_chars:
+            idle_seconds = seconds
+
+    return idle_seconds
 
 
 def update_prompt_buffer(prompt_buffer, key):
@@ -473,24 +494,32 @@ def run_autocomplete_pipeline(
     stop_event,
     debug_display=None,
     sessions_enabled=False,
+    timed_enabled=False,
 ):
     prompt_buffer = []
     prompt_buffer_lock = threading.Lock()
     autocomplete_thread = None
     autocomplete_stop_event = threading.Event()
     current_session_number = 0
+    session_written_chars = 0
+    last_user_write_at = None
+    last_autocomplete_finished_at = None
+    user_wrote_since_last_autocomplete = False
 
     def add_generated_text_to_prompt(chunk, session_number=None):
+        nonlocal session_written_chars
+
         with prompt_buffer_lock:
             if session_number is not None and session_number != current_session_number:
                 return False
 
             append_prompt_text(prompt_buffer, chunk)
+            session_written_chars += count_written_text_chars(chunk)
 
         return True
 
     def stop_autocomplete(status_message):
-        nonlocal autocomplete_stop_event, autocomplete_thread
+        nonlocal autocomplete_stop_event, autocomplete_thread, last_autocomplete_finished_at
 
         if autocomplete_thread is None:
             return
@@ -505,14 +534,22 @@ def run_autocomplete_pipeline(
         autocomplete_thread.join(timeout=1)
         autocomplete_thread = None
         autocomplete_stop_event = threading.Event()
+        last_autocomplete_finished_at = None
 
     def start_session():
-        nonlocal current_session_number
+        nonlocal current_session_number, session_written_chars
+        nonlocal last_user_write_at, last_autocomplete_finished_at
+        nonlocal user_wrote_since_last_autocomplete
 
         current_session_number += 1
 
         with prompt_buffer_lock:
             prompt_buffer.clear()
+
+        session_written_chars = 0
+        last_user_write_at = None
+        last_autocomplete_finished_at = None
+        user_wrote_since_last_autocomplete = False
 
         start_text = build_session_start_text(current_session_number)
 
@@ -524,17 +561,137 @@ def run_autocomplete_pipeline(
         else:
             print(f"SESSION: start {current_session_number}", flush=True)
 
+    def note_user_write(key):
+        nonlocal session_written_chars, last_user_write_at
+        nonlocal user_wrote_since_last_autocomplete
+
+        if key == "KEY_BACKSPACE":
+            last_user_write_at = time.monotonic()
+            user_wrote_since_last_autocomplete = True
+            return
+
+        text = key_to_prompt_text(key)
+
+        if not text:
+            return
+
+        session_written_chars += count_written_text_chars(text)
+        last_user_write_at = time.monotonic()
+        user_wrote_since_last_autocomplete = True
+
+    def finish_autocomplete_if_done():
+        nonlocal autocomplete_thread, autocomplete_stop_event
+        nonlocal last_autocomplete_finished_at
+
+        if autocomplete_thread is None or autocomplete_thread.is_alive():
+            return
+
+        autocomplete_thread = None
+        autocomplete_stop_event = threading.Event()
+
+        if timed_enabled:
+            last_autocomplete_finished_at = time.monotonic()
+
+    def start_autocomplete_from_prompt(reason=None):
+        nonlocal autocomplete_thread, autocomplete_stop_event
+        nonlocal last_autocomplete_finished_at, user_wrote_since_last_autocomplete
+
+        with prompt_buffer_lock:
+            prompt = "".join(prompt_buffer).strip()
+
+        if not prompt:
+            if debug_display is not None:
+                debug_display.autocomplete_status("prompt is empty")
+            else:
+                print("AUTOCOMPLETE: prompt is empty", flush=True)
+
+            if timed_enabled:
+                user_wrote_since_last_autocomplete = False
+
+            return False
+
+        if reason:
+            if debug_display is not None:
+                debug_display.autocomplete_status(reason)
+            else:
+                print(f"AUTOCOMPLETE: {reason}", flush=True)
+
+        if debug_display is not None:
+            debug_display.autocomplete_prompt(prompt)
+            debug_display.llm_config(autocomplete.ACTIVE_MODE, autocomplete.OPENAI_MODEL)
+        else:
+            print(f"AUTOCOMPLETE PROMPT: {prompt!r}", flush=True)
+
+        autocomplete_stop_event.clear()
+        if sessions_enabled:
+            generated_text_callback = (
+                lambda chunk, session_number=current_session_number:
+                add_generated_text_to_prompt(chunk, session_number)
+            )
+        else:
+            generated_text_callback = add_generated_text_to_prompt
+
+        autocomplete_thread = start_autocomplete_thread(
+            prompt,
+            write_queue,
+            autocomplete_stop_event,
+            debug_display=debug_display,
+            generated_text_callback=generated_text_callback,
+        )
+
+        if timed_enabled:
+            user_wrote_since_last_autocomplete = False
+            last_autocomplete_finished_at = None
+
+        return True
+
+    def run_timed_actions():
+        if not timed_enabled or autocomplete_thread is not None:
+            return
+
+        now = time.monotonic()
+
+        if last_autocomplete_finished_at is not None:
+            idle_after_autocomplete = now - last_autocomplete_finished_at
+
+            if (
+                not user_wrote_since_last_autocomplete
+                and idle_after_autocomplete >= TIMED_SESSION_END_IDLE_SECONDS
+            ):
+                if debug_display is not None:
+                    debug_display.autocomplete_status("timed session end")
+                else:
+                    print("AUTOCOMPLETE: timed session end", flush=True)
+
+                clear_queue(write_queue)
+                start_session()
+                return
+
+        if not user_wrote_since_last_autocomplete or last_user_write_at is None:
+            return
+
+        idle_seconds = timed_autocomplete_idle_seconds(session_written_chars)
+        if idle_seconds is None:
+            return
+
+        if now - last_user_write_at >= idle_seconds:
+            start_autocomplete_from_prompt(
+                "timed autocomplete after "
+                f"{idle_seconds:.0f}s idle and {session_written_chars} chars"
+            )
+
     if sessions_enabled:
         start_session()
 
     while not stop_event.is_set():
-        if autocomplete_thread is not None and not autocomplete_thread.is_alive():
-            autocomplete_thread = None
-            autocomplete_stop_event = threading.Event()
+        finish_autocomplete_if_done()
+        run_timed_actions()
 
         try:
             key = read_queue.get(timeout=0.1)
         except queue.Empty:
+            finish_autocomplete_if_done()
+            run_timed_actions()
             continue
 
         try:
@@ -556,43 +713,12 @@ def run_autocomplete_pipeline(
                 continue
 
             if key == AUTOCOMPLETE_START_KEY:
-                with prompt_buffer_lock:
-                    prompt = "".join(prompt_buffer).strip()
-
-                if not prompt:
-                    if debug_display is not None:
-                        debug_display.autocomplete_status("prompt is empty")
-                    else:
-                        print("AUTOCOMPLETE: prompt is empty", flush=True)
-
-                    continue
-
-                if debug_display is not None:
-                    debug_display.autocomplete_prompt(prompt)
-                    debug_display.llm_config(autocomplete.ACTIVE_MODE, autocomplete.OPENAI_MODEL)
-                else:
-                    print(f"AUTOCOMPLETE PROMPT: {prompt!r}", flush=True)
-
-                autocomplete_stop_event.clear()
-                if sessions_enabled:
-                    generated_text_callback = (
-                        lambda chunk, session_number=current_session_number:
-                        add_generated_text_to_prompt(chunk, session_number)
-                    )
-                else:
-                    generated_text_callback = add_generated_text_to_prompt
-
-                autocomplete_thread = start_autocomplete_thread(
-                    prompt,
-                    write_queue,
-                    autocomplete_stop_event,
-                    debug_display=debug_display,
-                    generated_text_callback=generated_text_callback,
-                )
+                start_autocomplete_from_prompt()
                 continue
 
             with prompt_buffer_lock:
                 update_prompt_buffer(prompt_buffer, key)
+            note_user_write(key)
 
             output = process_read_key(key)
             enqueue_write_output(write_queue, output)
@@ -621,11 +747,18 @@ def parse_args():
         action="store_true",
         help="Session loop for autocomplete mode",
     )
+    parser.add_argument(
+        "--timed",
+        action="store_true",
+        help="Automatically trigger autocomplete/session changes after inactivity",
+    )
 
     args = parser.parse_args()
 
     if args.sessions and not args.autocomplete:
         parser.error("--sessions is only supported with --autocomplete")
+    if args.timed and not (args.autocomplete and args.sessions):
+        parser.error("--timed is only supported with --autocomplete --sessions")
 
     return args
 
@@ -645,9 +778,12 @@ def main():
         if args.debug:
             key_mode_action = (
                 "ends the current session"
-                if args.sessions
+                if args.sessions and not args.timed
                 else "stops autocomplete"
             )
+            if args.timed:
+                key_mode_action = "timed mode also starts new sessions automatically"
+
             print(
                 "Debug mode: GPIO is not used. "
                 f"Ctrl+G/F1 = KEY_CODE, Ctrl+X = KEY_MODE ({key_mode_action}).",
@@ -681,7 +817,13 @@ def main():
         )
 
         if args.autocomplete:
-            if args.sessions:
+            if args.timed:
+                print(
+                    "Autocomplete timed sessions mode: "
+                    "idle time starts autocomplete and ends sessions automatically.",
+                    flush=True,
+                )
+            elif args.sessions:
                 print(
                     "Autocomplete sessions mode: "
                     "KEY_CODE starts autocomplete, KEY_MODE starts a new session.",
@@ -698,6 +840,7 @@ def main():
                 stop_event,
                 debug_display=terminal_display,
                 sessions_enabled=args.sessions,
+                timed_enabled=args.timed,
             )
         else:
             run_pipeline(

@@ -105,6 +105,12 @@ python3 main.py --autocomplete --sessions
 
 # Debug session loop
 python3 main.py --autocomplete --sessions --debug
+
+# Timed hardware session loop
+python3 main.py --autocomplete --sessions --timed
+
+# Timed debug session loop
+python3 main.py --autocomplete --sessions --timed --debug
 ```
 
 ### Modes
@@ -113,6 +119,7 @@ python3 main.py --autocomplete --sessions --debug
 - **server**: Uses OpenAI ChatGPT API with API key from `.env`
 - **hybrid**: Tries OpenAI with 5-second timeout, falls back to local Ollama on failure
 - **sessions**: With `--autocomplete --sessions`, `KEY_MODE` starts a new session and `KEY_CODE` autocompletes only the current session text
+- **timed**: With `--autocomplete --sessions --timed`, inactivity triggers autocomplete and then starts a new session after the post-autocomplete idle timeout. Tune the thresholds in `TIMED_AUTOCOMPLETE_IDLE_RULES` and `TIMED_SESSION_END_IDLE_SECONDS` in `main.py`.
 
 ## Usage
 
