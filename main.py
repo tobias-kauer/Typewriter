@@ -18,8 +18,9 @@ SESSION_START_TEXTS = (
     "KEY_ENTER KEY_ENTER Review No. {session} - {timestamp} KEY_ENTER KEY_ENTER",
 )
 TIMED_AUTOCOMPLETE_IDLE_RULES = (
-    (70, 8.0),
-    (250, 6.0),
+    (0, 10.0),
+    (50, 8.0),
+    (200, 6.0),
     (500, 4.0),
     (750, 2.0),
 )
