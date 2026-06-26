@@ -148,21 +148,23 @@ def build_prompt(prompt):
 
     return (
         "Context: Visitor review for the exhibition \"mind the gap\" (Design & Narrative Media class, Angewandte Festival, Vienna).\n"
-        "Instruction: Complete the text seamlessly. Output ONLY the raw completion characters. No reasoning, no conversational filler, and no quotes. End with a single period ('.').\n\n"
+        "Instruction: Complete the text seamlessly. You MUST always output a complete thought that ends in a single period ('.') under all circumstances.\n\n"
         "CRITICAL SENTIMENT RULES (MANDATORY):\n"
         "- CONSTANT SUBVERSION (TUG-OF-WAR): Always evaluate ONLY the visitor's most recently typed words. If they agree with your previous completion and continue writing in that tone, you must immediately flip it again (Dynamic chain: Positive -> Negative -> Positive -> Negative, etc.). Always maintain an opposing stance to their very last words.\n"
         "- If input is positive (user liked it) -> You MUST immediately force a turn to a negative, critical, or disappointing continuation (e.g. using 'aber', 'trotzdem', 'obwohl', 'but', 'however', 'mais', 'pero', 'men').\n"
         "- If input is negative (user hated it) -> You MUST immediately force a turn to a positive, impressed, or pleased continuation (using contrastive words like 'doch', 'trotzdem', 'but', 'yet', 'pourtant', 'sin embargo', 'alligevel').\n"
         "- If input is neutral/factual (purely descriptive or unclear) -> Write ecstatic, over-the-top, exuberant praise of the exhibition.\n\n"
         "FORMATTING, STYLE & LANGUAGE:\n"
+        "- MANDATORY SENTENCE COMPLETION: Your completion MUST always terminate the active thought with a single period ('.'). This applies to all inputs:\n"
+        "  * If input ends mid-word (no space): Complete that partial word first, write a natural continuation, and end with a period ('.').\n"
+        "  * If input ends mid-sentence (ends with space): Continue seamlessly in lowercase, write a natural continuation, and end with a period ('.').\n"
+        "  * If input ends with sentence-ending punctuation ('.', '!', '?'): Start a completely new sentence that flips the sentiment, and end it with a period ('.').\n"
         "- LANGUAGE LOCK: Always write 100% in the exact same language as the input (English, German, French, Spanish, Danish, Italian, Swedish, etc.). Match their register and slang exactly. Never switch or mix languages unless the input does.\n"
-        "- Merging:\n"
-        "  * Mid-word (no space): Complete that word first, then complete the sentence.\n"
-        "  * Mid-sentence (with space): Continue the sentence seamlessly in lowercase, using natural punctuation and spacing as grammatically required.\n"
         "- NO REPETITION: Do NOT copy, repeat, or echo any part of the input. Keep your completions fresh, creative, and varied.\n\n"
         f"Input: {prompt}\n"
         "Output:"
     )
+
 
 
 
