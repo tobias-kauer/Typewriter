@@ -303,6 +303,10 @@ def clear_queue(target_queue):
         target_queue.queue.clear()
 
 
+def queue_has_unfinished_work(target_queue):
+    return getattr(target_queue, "unfinished_tasks", 0) > 0
+
+
 def build_session_start_text(session_number):
     if not SESSION_START_TEXTS:
         return ""
@@ -515,7 +519,8 @@ def run_autocomplete_pipeline(
     current_session_number = 0
     session_written_chars = 0
     last_user_write_at = None
-    last_autocomplete_finished_at = None
+    last_autocomplete_written_at = None
+    waiting_for_autocomplete_write = False
     user_wrote_since_last_autocomplete = False
 
     def add_generated_text_to_prompt(chunk, session_number=None):
@@ -536,7 +541,8 @@ def run_autocomplete_pipeline(
             debug_display.set_session_char_count(session_written_chars)
 
     def stop_autocomplete(status_message):
-        nonlocal autocomplete_stop_event, autocomplete_thread, last_autocomplete_finished_at
+        nonlocal autocomplete_stop_event, autocomplete_thread
+        nonlocal last_autocomplete_written_at, waiting_for_autocomplete_write
 
         if autocomplete_thread is None:
             return
@@ -551,11 +557,13 @@ def run_autocomplete_pipeline(
         autocomplete_thread.join(timeout=1)
         autocomplete_thread = None
         autocomplete_stop_event = threading.Event()
-        last_autocomplete_finished_at = None
+        last_autocomplete_written_at = None
+        waiting_for_autocomplete_write = False
 
     def start_session():
         nonlocal current_session_number, session_written_chars
-        nonlocal last_user_write_at, last_autocomplete_finished_at
+        nonlocal last_user_write_at, last_autocomplete_written_at
+        nonlocal waiting_for_autocomplete_write
         nonlocal user_wrote_since_last_autocomplete
 
         current_session_number += 1
@@ -565,7 +573,8 @@ def run_autocomplete_pipeline(
 
         session_written_chars = 0
         last_user_write_at = None
-        last_autocomplete_finished_at = None
+        last_autocomplete_written_at = None
+        waiting_for_autocomplete_write = False
         user_wrote_since_last_autocomplete = False
 
         start_text = build_session_start_text(current_session_number)
@@ -599,7 +608,7 @@ def run_autocomplete_pipeline(
 
     def finish_autocomplete_if_done():
         nonlocal autocomplete_thread, autocomplete_stop_event
-        nonlocal last_autocomplete_finished_at
+        nonlocal waiting_for_autocomplete_write
 
         if autocomplete_thread is None or autocomplete_thread.is_alive():
             return
@@ -608,11 +617,24 @@ def run_autocomplete_pipeline(
         autocomplete_stop_event = threading.Event()
 
         if timed_enabled:
-            last_autocomplete_finished_at = time.monotonic()
+            waiting_for_autocomplete_write = True
+
+    def start_post_autocomplete_idle_if_writer_done():
+        nonlocal waiting_for_autocomplete_write, last_autocomplete_written_at
+
+        if not timed_enabled or not waiting_for_autocomplete_write:
+            return
+
+        if queue_has_unfinished_work(write_queue):
+            return
+
+        waiting_for_autocomplete_write = False
+        last_autocomplete_written_at = time.monotonic()
 
     def start_autocomplete_from_prompt(reason=None):
         nonlocal autocomplete_thread, autocomplete_stop_event
-        nonlocal last_autocomplete_finished_at, user_wrote_since_last_autocomplete
+        nonlocal last_autocomplete_written_at, waiting_for_autocomplete_write
+        nonlocal user_wrote_since_last_autocomplete
 
         with prompt_buffer_lock:
             prompt = "".join(prompt_buffer).strip()
@@ -659,7 +681,8 @@ def run_autocomplete_pipeline(
 
         if timed_enabled:
             user_wrote_since_last_autocomplete = False
-            last_autocomplete_finished_at = None
+            last_autocomplete_written_at = None
+            waiting_for_autocomplete_write = False
 
         return True
 
@@ -667,10 +690,12 @@ def run_autocomplete_pipeline(
         if not timed_enabled or autocomplete_thread is not None:
             return
 
+        start_post_autocomplete_idle_if_writer_done()
+
         now = time.monotonic()
 
-        if last_autocomplete_finished_at is not None:
-            idle_after_autocomplete = now - last_autocomplete_finished_at
+        if last_autocomplete_written_at is not None:
+            idle_after_autocomplete = now - last_autocomplete_written_at
 
             if (
                 not user_wrote_since_last_autocomplete
