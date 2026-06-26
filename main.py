@@ -15,7 +15,7 @@ import write
 AUTOCOMPLETE_START_KEY = "KEY_CODE"
 AUTOCOMPLETE_STOP_KEY = "KEY_MODE"
 SESSION_START_TEXTS = (
-    "Review #{session} - {timestamp}\n ",
+    "Review No. {session} - {timestamp}\n ",
 )
 
 RESET = "\033[0m"
