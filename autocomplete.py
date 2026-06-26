@@ -209,7 +209,7 @@ def build_retry_prompt(prompt):
         f"Existing text (do NOT repeat this!):\n{prompt}\n\n"
         "New continuation only:"
     )
-    )
+    
 
 
 def build_retry_prompt(prompt):
