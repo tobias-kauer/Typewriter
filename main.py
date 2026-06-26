@@ -18,7 +18,7 @@ SESSION_START_TEXTS = (
     "KEY_ENTER KEY_ENTER Review No. {session} - {timestamp} KEY_ENTER KEY_ENTER",
 )
 TIMED_AUTOCOMPLETE_IDLE_RULES = (
-    (100, 8.0),
+    (70, 8.0),
     (250, 6.0),
     (500, 4.0),
     (750, 2.0),
@@ -49,6 +49,7 @@ class TerminalTextDisplay:
         self.output_stream = output_stream
         self.use_color = output_stream.isatty() if use_color is None else use_color
         self.segments = []
+        self.session_char_count = 0
         self.lock = threading.Lock()
 
     def color(self, text, ansi_color):
@@ -119,12 +120,17 @@ class TerminalTextDisplay:
     def session_start(self, session_number, start_text):
         with self.lock:
             self.segments = []
+            self.session_char_count = 0
             self._log("SESSION", f"start {session_number}", SESSION_COLOR)
 
             if start_text:
                 self._append_text("session", start_text)
 
             self._render_text()
+
+    def set_session_char_count(self, char_count):
+        with self.lock:
+            self.session_char_count = char_count
 
     def typed_key(self, key):
         text = key_to_prompt_text(key)
@@ -174,6 +180,11 @@ class TerminalTextDisplay:
 
     def _render_text(self):
         print(self.color("TEXT SO FAR", BOLD), file=self.output_stream)
+        print(
+            f"  {self.color('session chars:', SESSION_COLOR)} "
+            f"{self.session_char_count}",
+            file=self.output_stream,
+        )
 
         if not self.segments:
             print(f"  {self.color('(empty)', DIM)}", file=self.output_stream, flush=True)
@@ -516,7 +527,12 @@ def run_autocomplete_pipeline(
             append_prompt_text(prompt_buffer, chunk)
             session_written_chars += count_written_text_chars(chunk)
 
+        update_display_char_count()
         return True
+
+    def update_display_char_count():
+        if debug_display is not None:
+            debug_display.set_session_char_count(session_written_chars)
 
     def stop_autocomplete(status_message):
         nonlocal autocomplete_stop_event, autocomplete_thread, last_autocomplete_finished_at
@@ -578,6 +594,7 @@ def run_autocomplete_pipeline(
         session_written_chars += count_written_text_chars(text)
         last_user_write_at = time.monotonic()
         user_wrote_since_last_autocomplete = True
+        update_display_char_count()
 
     def finish_autocomplete_if_done():
         nonlocal autocomplete_thread, autocomplete_stop_event
