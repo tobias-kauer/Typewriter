@@ -604,13 +604,13 @@ def parse_args():
     parser.add_argument(
         "--sessions",
         action="store_true",
-        help="Debug-only session loop for autocomplete mode",
+        help="Session loop for autocomplete mode",
     )
 
     args = parser.parse_args()
 
-    if args.sessions and not (args.autocomplete and args.debug):
-        parser.error("--sessions is only supported with --autocomplete --debug")
+    if args.sessions and not args.autocomplete:
+        parser.error("--sessions is only supported with --autocomplete")
 
     return args
 

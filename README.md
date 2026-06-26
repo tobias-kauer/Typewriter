@@ -96,8 +96,11 @@ python3 main.py --autocomplete --debug
 # Hybrid mode (API key from .env, falls back to local)
 python3 main.py --autocomplete --debug
 
+# Hardware session loop
+python3 main.py --autocomplete --sessions
+
 # Debug session loop
-python3 main.py --autocomplete --debug --sessions
+python3 main.py --autocomplete --sessions --debug
 ```
 
 ### Modes
@@ -105,7 +108,7 @@ python3 main.py --autocomplete --debug --sessions
 - **local**: Uses Ollama on `localhost:11434` with `gemma3:1b` (no internet required)
 - **server**: Uses OpenAI ChatGPT API with API key from `.env`
 - **hybrid**: Tries OpenAI with 5-second timeout, falls back to local Ollama on failure
-- **sessions**: With `--autocomplete --debug --sessions`, `KEY_MODE` starts a new session and `KEY_CODE` autocompletes only the current session text
+- **sessions**: With `--autocomplete --sessions`, `KEY_MODE` starts a new session and `KEY_CODE` autocompletes only the current session text
 
 ## Usage
 
