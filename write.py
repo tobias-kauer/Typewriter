@@ -30,6 +30,7 @@ SETTLE_DELAY = 0.00002
 # Time for row/column select lines to settle before enabling the mux bridge.
 MUX_CHANNEL_DELAY = 0.09
 IDLE_POLL_DELAY = 0.01
+MAX_ROW_CHARS = 65
 
 KEYMAP = (
     ("i", "z", "-", "", "KEY_MODE", "7", "q", "a"),
@@ -90,6 +91,52 @@ class NullOutput:
 
 
 NULL_OUTPUT = NullOutput()
+
+
+def token_row_width(token):
+    if token == "KEY_TAB":
+        return 1
+
+    if token.startswith("KEY_"):
+        return 0
+
+    return len(token)
+
+
+class RowWrapState:
+    def __init__(self, max_row_chars=MAX_ROW_CHARS):
+        self.max_row_chars = max_row_chars
+        self.column = 0
+
+    def should_wrap_before(self, token):
+        width = token_row_width(token)
+        return self.max_row_chars > 0 and width > 0 and (
+            self.column + width > self.max_row_chars
+        )
+
+    def update(self, token):
+        if token == "KEY_ENTER":
+            self.column = 0
+            return
+
+        if token == "KEY_BACKSPACE":
+            self.column = max(0, self.column - 1)
+            return
+
+        self.column += token_row_width(token)
+
+
+def wrap_tokens_for_row(tokens, row_state=None, max_row_chars=MAX_ROW_CHARS):
+    if row_state is None:
+        row_state = RowWrapState(max_row_chars)
+
+    for token in tokens:
+        if row_state.should_wrap_before(token):
+            yield "KEY_ENTER"
+            row_state.update("KEY_ENTER")
+
+        yield token
+        row_state.update(token)
 
 
 def set_mux_channel(s0, s1, s2, channel, s3=None):
@@ -216,19 +263,29 @@ def write_tokens(
     bridge_time=BRIDGE_TIME,
     inter_key_delay=INTER_KEY_DELAY,
     mux_channel_delay=MUX_CHANNEL_DELAY,
+    row_state=None,
+    max_row_chars=MAX_ROW_CHARS,
 ):
     try:
         wait_with_mux_idle(SETTLE_DELAY)
 
-        for index, token in enumerate(tokens):
+        first_token = True
+
+        for token in wrap_tokens_for_row(
+            tokens,
+            row_state=row_state,
+            max_row_chars=max_row_chars,
+        ):
+            if first_token:
+                first_token = False
+            else:
+                wait_with_mux_idle(inter_key_delay)
+
             write_key(
                 token,
                 bridge_time=bridge_time,
                 mux_channel_delay=mux_channel_delay,
             )
-
-            if index < len(tokens) - 1:
-                wait_with_mux_idle(inter_key_delay)
 
     finally:
         wait_with_mux_idle(SETTLE_DELAY)
@@ -239,12 +296,16 @@ def write_letters(
     bridge_time=BRIDGE_TIME,
     inter_key_delay=INTER_KEY_DELAY,
     mux_channel_delay=MUX_CHANNEL_DELAY,
+    row_state=None,
+    max_row_chars=MAX_ROW_CHARS,
 ):
     write_tokens(
         parse_key_tokens(text),
         bridge_time=bridge_time,
         inter_key_delay=inter_key_delay,
         mux_channel_delay=mux_channel_delay,
+        row_state=row_state,
+        max_row_chars=max_row_chars,
     )
 
 
@@ -253,6 +314,8 @@ def write_queue_item(
     bridge_time=BRIDGE_TIME,
     inter_key_delay=INTER_KEY_DELAY,
     mux_channel_delay=MUX_CHANNEL_DELAY,
+    row_state=None,
+    max_row_chars=MAX_ROW_CHARS,
 ):
     if item is None:
         return
@@ -269,6 +332,8 @@ def write_queue_item(
         bridge_time=bridge_time,
         inter_key_delay=inter_key_delay,
         mux_channel_delay=mux_channel_delay,
+        row_state=row_state,
+        max_row_chars=max_row_chars,
     )
 
 
@@ -285,7 +350,12 @@ def debug_write_token(token, output_stream=sys.stdout):
         output_stream.write(token)
 
 
-def debug_write_queue_item(item, output_stream=sys.stdout):
+def debug_write_queue_item(
+    item,
+    output_stream=sys.stdout,
+    row_state=None,
+    max_row_chars=MAX_ROW_CHARS,
+):
     if item is None:
         return
 
@@ -296,13 +366,23 @@ def debug_write_queue_item(item, output_stream=sys.stdout):
     else:
         tokens = parse_key_tokens(str(item))
 
-    for token in tokens:
+    for token in wrap_tokens_for_row(
+        tokens,
+        row_state=row_state,
+        max_row_chars=max_row_chars,
+    ):
         debug_write_token(token, output_stream=output_stream)
 
     output_stream.flush()
 
 
-def debug_write_loop(input_queue, stop_event=None, bridge_time=BRIDGE_TIME, echo=True):
+def debug_write_loop(
+    input_queue,
+    stop_event=None,
+    bridge_time=BRIDGE_TIME,
+    echo=True,
+    max_row_chars=MAX_ROW_CHARS,
+):
     """Mock the hardware writer with terminal output.
 
     This is only used by main.py --debug on a development machine. The normal
@@ -313,6 +393,8 @@ def debug_write_loop(input_queue, stop_event=None, bridge_time=BRIDGE_TIME, echo
 
     if echo:
         print("Debug writer ready. Output will be printed here.", flush=True)
+
+    row_state = RowWrapState(max_row_chars)
 
     while stop_event is None or not stop_event.is_set() or not input_queue.empty():
         try:
@@ -330,6 +412,8 @@ def debug_write_loop(input_queue, stop_event=None, bridge_time=BRIDGE_TIME, echo
             debug_write_queue_item(
                 item,
                 output_stream=sys.stdout if echo else NULL_OUTPUT,
+                row_state=row_state,
+                max_row_chars=max_row_chars,
             )
 
         finally:
@@ -342,8 +426,10 @@ def write_loop(
     stop_event=None,
     bridge_time=BRIDGE_TIME,
     mux_channel_delay=MUX_CHANNEL_DELAY,
+    max_row_chars=MAX_ROW_CHARS,
 ):
     setup_gpio()
+    row_state = RowWrapState(max_row_chars)
 
     try:
         while stop_event is None or not stop_event.is_set() or not input_queue.empty():
@@ -365,6 +451,8 @@ def write_loop(
                     item,
                     bridge_time=bridge_time,
                     mux_channel_delay=mux_channel_delay,
+                    row_state=row_state,
+                    max_row_chars=max_row_chars,
                 )
 
             finally:
@@ -380,12 +468,18 @@ def write_key_forever(
     bridge_time=BRIDGE_TIME,
     inter_key_delay=INTER_KEY_DELAY,
     mux_channel_delay=MUX_CHANNEL_DELAY,
+    max_row_chars=MAX_ROW_CHARS,
 ):
+    row_state = RowWrapState(max_row_chars)
+
     while True:
-        write_key(
-            key,
+        write_tokens(
+            [key],
             bridge_time=bridge_time,
+            inter_key_delay=inter_key_delay,
             mux_channel_delay=mux_channel_delay,
+            row_state=row_state,
+            max_row_chars=max_row_chars,
         )
         wait_with_mux_idle(inter_key_delay)
 
@@ -427,8 +521,13 @@ def read_terminal_key():
 def listen_for_keypresses(
     bridge_time=BRIDGE_TIME,
     mux_channel_delay=MUX_CHANNEL_DELAY,
+    row_state=None,
+    max_row_chars=MAX_ROW_CHARS,
 ):
     print("Listening. Press Ctrl+C to stop.")
+
+    if row_state is None:
+        row_state = RowWrapState(max_row_chars)
 
     while True:
         wait_with_mux_idle(0)
@@ -445,10 +544,13 @@ def listen_for_keypresses(
             print(f"Ignoring unmapped key: {key!r}")
             continue
 
-        write_key(
-            key,
+        write_tokens(
+            [key],
             bridge_time=bridge_time,
+            inter_key_delay=INTER_KEY_DELAY,
             mux_channel_delay=mux_channel_delay,
+            row_state=row_state,
+            max_row_chars=max_row_chars,
         )
 
 
@@ -531,6 +633,12 @@ def parse_args():
         help="Seconds to wait after selecting mux channels before enabling the bridge",
     )
     parser.add_argument(
+        "--max-row-chars",
+        type=int,
+        default=MAX_ROW_CHARS,
+        help="Maximum characters per row before automatically pressing KEY_ENTER",
+    )
+    parser.add_argument(
         "--repeat-one",
         action="store_true",
         help="Keep writing the first given letter until stopped",
@@ -562,6 +670,7 @@ def main():
         return
 
     setup_gpio()
+    row_state = RowWrapState(args.max_row_chars)
 
     try:
         if args.keep_high:
@@ -583,6 +692,7 @@ def main():
                 bridge_time=args.bridge_time,
                 inter_key_delay=args.key_delay,
                 mux_channel_delay=args.mux_channel_delay,
+                max_row_chars=args.max_row_chars,
             )
 
         if text:
@@ -591,6 +701,8 @@ def main():
                 bridge_time=args.bridge_time,
                 inter_key_delay=args.key_delay,
                 mux_channel_delay=args.mux_channel_delay,
+                row_state=row_state,
+                max_row_chars=args.max_row_chars,
             )
 
             if args.write_once:
@@ -600,6 +712,8 @@ def main():
             lambda: listen_for_keypresses(
                 bridge_time=args.bridge_time,
                 mux_channel_delay=args.mux_channel_delay,
+                row_state=row_state,
+                max_row_chars=args.max_row_chars,
             )
         )
 

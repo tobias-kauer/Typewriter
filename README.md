@@ -58,6 +58,10 @@ TARGET_ROWS = list(range(ROW_COUNT))
 TARGET_COLS = list(range(COL_COUNT))
 ```
 
+The writer automatically presses `KEY_ENTER` before a row would exceed
+`MAX_ROW_CHARS` in `write.py` (default: 65). For direct `write.py` runs, you can
+override it with `--max-row-chars`.
+
 ## Autocomplete Configuration
 
 The autocomplete feature supports three modes: **local** (Ollama), **server** (OpenAI), and **hybrid** (fallback). API keys are stored in a `.env` file (not tracked by git) to keep secrets secure.
