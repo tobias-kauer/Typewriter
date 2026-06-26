@@ -15,7 +15,7 @@ import write
 AUTOCOMPLETE_START_KEY = "KEY_CODE"
 AUTOCOMPLETE_STOP_KEY = "KEY_MODE"
 SESSION_START_TEXTS = (
-    "Review No. {session} - {timestamp} KEY_ENTER",
+    "KEY_ENTER KEY_ENTER Review No. {session} - {timestamp} KEY_ENTER KEY_ENTER",
 )
 
 RESET = "\033[0m"
@@ -174,7 +174,7 @@ class TerminalTextDisplay:
             return
 
         rendered = "".join(
-            self.color(text, self._segment_color(source))
+            self.color(self._display_text(text), self._segment_color(source))
             for source, text in self.segments
         )
         rendered = rendered.replace("\t", "    ")
@@ -193,6 +193,21 @@ class TerminalTextDisplay:
             return GENERATED_COLOR
 
         return SESSION_COLOR
+
+    def _display_text(self, text):
+        rendered_tokens = []
+
+        for token in write.parse_key_tokens(text):
+            if token == "KEY_ENTER":
+                rendered_tokens.append("\n")
+            elif token == "KEY_TAB":
+                rendered_tokens.append("\t")
+            elif token.startswith("KEY_"):
+                continue
+            else:
+                rendered_tokens.append(token)
+
+        return "".join(rendered_tokens)
 
 
 def generate_autocomplete_response(prompt):
