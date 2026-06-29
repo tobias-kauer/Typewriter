@@ -20,16 +20,19 @@ SESSION_ARCHIVE_FILE = os.path.join(BASE_DIR, "sessions_archive.json")
 AUTOCOMPLETE_START_KEY = "KEY_CODE"
 AUTOCOMPLETE_STOP_KEY = "KEY_MODE"
 SESSION_START_TEXTS = (
-    "KEY_ENTER KEY_ENTER KEY_ENTER Review No. {session} - {timestamp} KEY_ENTER KEY_ENTER KEY_ENTER",
+    "",
+)
+SESSION_END_TEXTS = (
+    "KEY_ENTER KEY_ENTER KEY_ENTER (End Review No. {session} - {timestamp}) KEY_ENTER",
 )
 TIMED_AUTOCOMPLETE_IDLE_RULES = (
-    (1, 5.0),
-    (50, 8.0),
-    (200, 6.0),
-    (500, 4.0),
+    (1, 3.0),
+    (50, 3.0),
+    (200, 2.0),
+    (500, 2.0),
     (750, 2.0),
 )
-TIMED_SESSION_END_IDLE_SECONDS = 30.0
+TIMED_SESSION_END_IDLE_SECONDS = 20.0
 
 RESET = "\033[0m"
 BOLD = "\033[1m"
@@ -131,6 +134,15 @@ class TerminalTextDisplay:
 
             if start_text:
                 self._append_text("session", start_text)
+
+            self._render_text()
+
+    def session_end(self, session_number, end_text):
+        with self.lock:
+            self._log("SESSION", f"end {session_number}", SESSION_COLOR)
+
+            if end_text:
+                self._append_text("session", end_text)
 
             self._render_text()
 
@@ -387,11 +399,19 @@ def append_session_to_archive(
 
 
 def build_session_start_text(session_number):
-    if not SESSION_START_TEXTS:
+    return build_session_marker_text(SESSION_START_TEXTS, session_number)
+
+
+def build_session_end_text(session_number):
+    return build_session_marker_text(SESSION_END_TEXTS, session_number)
+
+
+def build_session_marker_text(templates, session_number):
+    if not templates:
         return ""
 
     started_at = datetime.now()
-    template = SESSION_START_TEXTS[(session_number - 1) % len(SESSION_START_TEXTS)]
+    template = templates[(session_number - 1) % len(templates)]
     return template.format(
         session=session_number,
         date=started_at.strftime("%Y-%m-%d"),
@@ -653,6 +673,21 @@ def run_autocomplete_pipeline(
         else:
             print(f"SESSION: saved {current_session_number}", flush=True)
 
+    def finish_current_session():
+        if current_session_number < first_session_number:
+            return
+
+        save_current_session()
+        end_text = build_session_end_text(current_session_number)
+
+        if end_text:
+            enqueue_write_output(write_queue, end_text)
+
+        if debug_display is not None:
+            debug_display.session_end(current_session_number, end_text)
+        else:
+            print(f"SESSION: end {current_session_number}", flush=True)
+
     def stop_autocomplete(status_message):
         nonlocal autocomplete_stop_event, autocomplete_thread
         nonlocal last_autocomplete_written_at, waiting_for_autocomplete_write
@@ -673,14 +708,16 @@ def run_autocomplete_pipeline(
         last_autocomplete_written_at = None
         waiting_for_autocomplete_write = False
 
-    def start_session():
+    def start_session(write_end_text=True):
         nonlocal current_session_number, session_written_chars
         nonlocal session_saved
         nonlocal last_user_write_at, last_autocomplete_written_at
         nonlocal waiting_for_autocomplete_write
         nonlocal user_wrote_since_last_autocomplete
 
-        save_current_session()
+        if write_end_text:
+            finish_current_session()
+
         current_session_number += 1
 
         with prompt_buffer_lock:
@@ -840,7 +877,7 @@ def run_autocomplete_pipeline(
             )
 
     if sessions_enabled:
-        start_session()
+        start_session(write_end_text=False)
 
     try:
         while not stop_event.is_set():
