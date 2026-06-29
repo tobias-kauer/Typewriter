@@ -2,6 +2,8 @@
 """Main program: read keys, process them, and write the result."""
 
 import argparse
+import json
+import os
 import queue
 import sys
 import threading
@@ -12,13 +14,16 @@ import autocomplete
 import read
 import write
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+SESSION_ARCHIVE_FILE = os.path.join(BASE_DIR, "sessions_archive.json")
+
 AUTOCOMPLETE_START_KEY = "KEY_CODE"
 AUTOCOMPLETE_STOP_KEY = "KEY_MODE"
 SESSION_START_TEXTS = (
     "KEY_ENTER KEY_ENTER Review No. {session} - {timestamp} KEY_ENTER KEY_ENTER",
 )
 TIMED_AUTOCOMPLETE_IDLE_RULES = (
-    (0, 10.0),
+    (2, 10.0),
     (50, 8.0),
     (200, 6.0),
     (500, 4.0),
@@ -300,11 +305,81 @@ def enqueue_write_output(write_queue, output):
 
 def clear_queue(target_queue):
     with target_queue.mutex:
+        cleared_items = len(target_queue.queue)
         target_queue.queue.clear()
+
+        if hasattr(target_queue, "unfinished_tasks"):
+            target_queue.unfinished_tasks = max(
+                0,
+                target_queue.unfinished_tasks - cleared_items,
+            )
+
+            if target_queue.unfinished_tasks == 0:
+                target_queue.all_tasks_done.notify_all()
 
 
 def queue_has_unfinished_work(target_queue):
     return getattr(target_queue, "unfinished_tasks", 0) > 0
+
+
+def empty_session_archive():
+    return {"sessions": []}
+
+
+def write_session_archive(archive, archive_file=SESSION_ARCHIVE_FILE):
+    temp_file = f"{archive_file}.tmp"
+
+    with open(temp_file, "w", encoding="utf-8") as f:
+        json.dump(archive, f, ensure_ascii=False, indent=2)
+        f.write("\n")
+
+    os.replace(temp_file, archive_file)
+
+
+def load_session_archive(archive_file=SESSION_ARCHIVE_FILE):
+    if not os.path.exists(archive_file):
+        archive = empty_session_archive()
+        write_session_archive(archive, archive_file=archive_file)
+        return archive
+
+    with open(archive_file, "r", encoding="utf-8") as f:
+        archive = json.load(f)
+
+    if not isinstance(archive, dict) or not isinstance(archive.get("sessions"), list):
+        raise ValueError(f"{archive_file} must contain a JSON object with a sessions list")
+
+    return archive
+
+
+def next_session_number_from_archive(archive):
+    last_session_number = 0
+
+    for session in archive["sessions"]:
+        if not isinstance(session, dict):
+            continue
+
+        session_number = session.get("session_number")
+
+        if isinstance(session_number, int):
+            last_session_number = max(last_session_number, session_number)
+
+    return last_session_number + 1
+
+
+def append_session_to_archive(
+    archive,
+    session_number,
+    text,
+    archive_file=SESSION_ARCHIVE_FILE,
+):
+    archive["sessions"].append(
+        {
+            "timestamp": datetime.now().isoformat(timespec="seconds"),
+            "session_number": session_number,
+            "text": text,
+        }
+    )
+    write_session_archive(archive, archive_file=archive_file)
 
 
 def build_session_start_text(session_number):
@@ -511,13 +586,17 @@ def run_autocomplete_pipeline(
     debug_display=None,
     sessions_enabled=False,
     timed_enabled=False,
+    session_archive=None,
+    first_session_number=1,
+    session_archive_file=SESSION_ARCHIVE_FILE,
 ):
     prompt_buffer = []
     prompt_buffer_lock = threading.Lock()
     autocomplete_thread = None
     autocomplete_stop_event = threading.Event()
-    current_session_number = 0
+    current_session_number = first_session_number - 1
     session_written_chars = 0
+    session_saved = True
     last_user_write_at = None
     last_autocomplete_written_at = None
     waiting_for_autocomplete_write = False
@@ -539,6 +618,36 @@ def run_autocomplete_pipeline(
     def update_display_char_count():
         if debug_display is not None:
             debug_display.set_session_char_count(session_written_chars)
+
+    def current_session_text():
+        with prompt_buffer_lock:
+            return "".join(prompt_buffer)
+
+    def save_current_session():
+        nonlocal session_saved
+
+        if (
+            not sessions_enabled
+            or session_archive is None
+            or session_saved
+            or current_session_number < first_session_number
+        ):
+            return
+
+        append_session_to_archive(
+            session_archive,
+            current_session_number,
+            current_session_text(),
+            archive_file=session_archive_file,
+        )
+        session_saved = True
+
+        if debug_display is not None:
+            debug_display.autocomplete_status(
+                f"saved session {current_session_number}"
+            )
+        else:
+            print(f"SESSION: saved {current_session_number}", flush=True)
 
     def stop_autocomplete(status_message):
         nonlocal autocomplete_stop_event, autocomplete_thread
@@ -562,16 +671,19 @@ def run_autocomplete_pipeline(
 
     def start_session():
         nonlocal current_session_number, session_written_chars
+        nonlocal session_saved
         nonlocal last_user_write_at, last_autocomplete_written_at
         nonlocal waiting_for_autocomplete_write
         nonlocal user_wrote_since_last_autocomplete
 
+        save_current_session()
         current_session_number += 1
 
         with prompt_buffer_lock:
             prompt_buffer.clear()
 
         session_written_chars = 0
+        session_saved = False
         last_user_write_at = None
         last_autocomplete_written_at = None
         waiting_for_autocomplete_write = False
@@ -726,51 +838,54 @@ def run_autocomplete_pipeline(
     if sessions_enabled:
         start_session()
 
-    while not stop_event.is_set():
-        finish_autocomplete_if_done()
-        run_timed_actions()
-
-        try:
-            key = read_queue.get(timeout=0.1)
-        except queue.Empty:
+    try:
+        while not stop_event.is_set():
             finish_autocomplete_if_done()
             run_timed_actions()
-            continue
 
-        try:
-            if debug_display is not None:
-                debug_display.read(key)
-            else:
-                print(f"READ: {key!r}", flush=True)
-
-            if sessions_enabled and key == AUTOCOMPLETE_STOP_KEY:
-                stop_autocomplete("ending session")
-                clear_queue(write_queue)
-                start_session()
+            try:
+                key = read_queue.get(timeout=0.1)
+            except queue.Empty:
+                finish_autocomplete_if_done()
+                run_timed_actions()
                 continue
 
-            if autocomplete_thread is not None:
-                if key == AUTOCOMPLETE_STOP_KEY:
-                    stop_autocomplete("stopping")
+            try:
+                if debug_display is not None:
+                    debug_display.read(key)
+                else:
+                    print(f"READ: {key!r}", flush=True)
 
-                continue
+                if sessions_enabled and key == AUTOCOMPLETE_STOP_KEY:
+                    stop_autocomplete("ending session")
+                    clear_queue(write_queue)
+                    start_session()
+                    continue
 
-            if key == AUTOCOMPLETE_START_KEY:
-                start_autocomplete_from_prompt()
-                continue
+                if autocomplete_thread is not None:
+                    if key == AUTOCOMPLETE_STOP_KEY:
+                        stop_autocomplete("stopping")
 
-            with prompt_buffer_lock:
-                update_prompt_buffer(prompt_buffer, key)
-            note_user_write(key)
+                    continue
 
-            output = process_read_key(key)
-            enqueue_write_output(write_queue, output)
+                if key == AUTOCOMPLETE_START_KEY:
+                    start_autocomplete_from_prompt()
+                    continue
 
-            if debug_display is not None:
-                debug_display.typed_key(key)
+                with prompt_buffer_lock:
+                    update_prompt_buffer(prompt_buffer, key)
+                note_user_write(key)
 
-        finally:
-            read_queue.task_done()
+                output = process_read_key(key)
+                enqueue_write_output(write_queue, output)
+
+                if debug_display is not None:
+                    debug_display.typed_key(key)
+
+            finally:
+                read_queue.task_done()
+    finally:
+        save_current_session()
 
 
 def parse_args():
@@ -851,6 +966,25 @@ def main():
                 flush=True,
             )
 
+        session_archive = None
+        first_session_number = 1
+
+        if args.autocomplete:
+            # Load API key from .env file if available.
+            autocomplete.load_env()
+
+            if args.sessions:
+                session_archive = load_session_archive()
+                first_session_number = next_session_number_from_archive(
+                    session_archive
+                )
+                print(
+                    "Session archive: "
+                    f"{SESSION_ARCHIVE_FILE} "
+                    f"(next session {first_session_number})",
+                    flush=True,
+                )
+
         reader_thread = start_reader_thread(read_queue, stop_event, debug=args.debug)
         writer_thread = start_writer_thread(
             write_queue,
@@ -875,8 +1009,6 @@ def main():
             else:
                 print("Autocomplete mode: KEY_CODE starts, KEY_MODE stops.", flush=True)
 
-            # Load API key from .env file if available
-            autocomplete.load_env()
             run_autocomplete_pipeline(
                 read_queue,
                 write_queue,
@@ -884,6 +1016,8 @@ def main():
                 debug_display=terminal_display,
                 sessions_enabled=args.sessions,
                 timed_enabled=args.timed,
+                session_archive=session_archive,
+                first_session_number=first_session_number,
             )
         else:
             run_pipeline(

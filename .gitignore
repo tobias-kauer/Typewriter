@@ -2,6 +2,8 @@
 config.json
 .env
 secrets.json
+sessions_archive.json
+sessions_archive.json.tmp
 
 # Python
 __pycache__/
