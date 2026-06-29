@@ -20,10 +20,10 @@ SESSION_ARCHIVE_FILE = os.path.join(BASE_DIR, "sessions_archive.json")
 AUTOCOMPLETE_START_KEY = "KEY_CODE"
 AUTOCOMPLETE_STOP_KEY = "KEY_MODE"
 SESSION_START_TEXTS = (
-    "KEY_ENTER KEY_ENTER Review No. {session} - {timestamp} KEY_ENTER KEY_ENTER",
+    "KEY_ENTER KEY_ENTER KEY_ENTER Review No. {session} - {timestamp} KEY_ENTER KEY_ENTER KEY_ENTER",
 )
 TIMED_AUTOCOMPLETE_IDLE_RULES = (
-    (2, 10.0),
+    (1, 5.0),
     (50, 8.0),
     (200, 6.0),
     (500, 4.0),
@@ -320,6 +320,10 @@ def clear_queue(target_queue):
 
 def queue_has_unfinished_work(target_queue):
     return getattr(target_queue, "unfinished_tasks", 0) > 0
+
+
+def is_manual_autocomplete_key(key):
+    return key in (AUTOCOMPLETE_START_KEY, AUTOCOMPLETE_STOP_KEY)
 
 
 def empty_session_archive():
@@ -856,6 +860,19 @@ def run_autocomplete_pipeline(
                 else:
                     print(f"READ: {key!r}", flush=True)
 
+                if timed_enabled and is_manual_autocomplete_key(key):
+                    if debug_display is not None:
+                        debug_display.autocomplete_status(
+                            f"{key} ignored in timed mode"
+                        )
+                    else:
+                        print(
+                            f"AUTOCOMPLETE: {key} ignored in timed mode",
+                            flush=True,
+                        )
+
+                    continue
+
                 if sessions_enabled and key == AUTOCOMPLETE_STOP_KEY:
                     stop_autocomplete("ending session")
                     clear_queue(write_queue)
@@ -934,19 +951,24 @@ def main():
         print("Main pipeline running. Press Ctrl+C to stop.", flush=True)
 
         if args.debug:
-            key_mode_action = (
-                "ends the current session"
-                if args.sessions and not args.timed
-                else "stops autocomplete"
-            )
             if args.timed:
-                key_mode_action = "timed mode also starts new sessions automatically"
-
-            print(
-                "Debug mode: GPIO is not used. "
-                f"Ctrl+G/F1 = KEY_CODE, Ctrl+X = KEY_MODE ({key_mode_action}).",
-                flush=True,
-            )
+                print(
+                    "Debug mode: GPIO is not used. "
+                    "Ctrl+G/F1 and Ctrl+X are ignored in timed mode.",
+                    flush=True,
+                )
+            else:
+                key_mode_action = (
+                    "ends the current session"
+                    if args.sessions
+                    else "stops autocomplete"
+                )
+                print(
+                    "Debug mode: GPIO is not used. "
+                    f"Ctrl+G/F1 = KEY_CODE, Ctrl+X = KEY_MODE "
+                    f"({key_mode_action}).",
+                    flush=True,
+                )
             print(
                 "Terminal display: "
                 f"{terminal_display.color('typed text', TYPED_COLOR)} / "
