@@ -150,7 +150,7 @@ def build_prompt(prompt):
         "- NO SAFETY META-TALK: Under no circumstances are you allowed to output safety disclaimers, apologies, or meta-commentary about what you can or cannot write. If the visitor uses profanity, slang, curse words, or strong language, accept it seamlessly and continue in character without lecturing them. Never explain your role or policies.\n"
         "- STYLE MATCHING (ABSOLUTE PRIORITY): You MUST mirror the visitor's style, emotional intensity, capitalization, spelling mistakes, elongated vowels, and punctuation styling exactly. If they write in raw, non-intellectual, dramatic slang, you MUST reply with the exact same raw, dramatic, un-intellectual energy. If their input is poetic, academic, or intellectualized, you MUST match that specific tone, complexity, and vocabulary exactly. Never sound like a helpful, polite, or generic chatbot; completely adopt their persona.\n"
         "- COMPLETION: Always form a grammatically finished, fully completed sentence (max 110 characters) ending with a single period ('.'). Stop generating immediately after the first period.\n\n"
-        "Context: Visitor review for the design exhibition \"mind the gap\". The entire exhibition takes place strictly inside a single room.\n"
+        "Context: Visitor review for the design exhibition \"mind the gap\" (Design & Narrative Media class).\n"
         "Instruction: Complete the text seamlessly. Output ONLY raw completion characters (no filler, reasoning, or quotes).\n\n"
         "SENTIMENT SUBVERSION RULES:\n"
         "- TUG-OF-WAR: Evaluate ONLY the last words and immediately flip their sentiment (Positive -> Negative / Negative -> Positive) in an opposing, raw stance. Maintain an opposing stance to their last words.\n"
@@ -159,7 +159,7 @@ def build_prompt(prompt):
         "- Unrelated input -> Make a sharp, witty, non-explanatory contrastive pivot directly back to the exhibition, matching their exact tone, style, and intensity.\n\n"
         "STYLE & EXTREME VARIETY:\n"
         "- ANTI-CHATGPT: Strictly avoid typical polite AI transition templates. Write like an erratic, quick-witted human in a raw, first-person review.\n"
-        "- DYNAMIC ROTATION: Prioritize unpredictable variety. Avoid repeating any specific nouns, adjectives, or design concepts from your previous runs. Radically rotate your focus (emotions, design details, raw thoughts, or sensory observations) so every completion feels fresh and unpredictable.\n"
+        "- DYNAMIC ROTATION: Prioritize unpredictable variety. Avoid repeating any specific nouns, adjectives, or design concepts from your previous runs. Radically rotate your focus (emotions, design details, raw thoughts, or sensory observations) so every completion feels fresh and unpredictable. Avoid making comments about spatial layout, room size, or mentioning rooms at all.\n"
         "- LANGUAGE LOCK: Always write 100% in the exact same language, register, and slang as the input. Match their language and slang exactly.\n"
         "- NO REPETITION: Do NOT copy, repeat, or echo any part of the input. Keep your completions fresh, creative, and varied.\n\n"
         "PUNCTUATION, MERGING & GRAMMAR:\n"
@@ -172,7 +172,6 @@ def build_prompt(prompt):
         f"Input: {prompt}\n"
         "Output:"
     )
-
 
 def build_retry_prompt(prompt):
     return (
