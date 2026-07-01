@@ -146,17 +146,16 @@ def build_ollama_connection_error(error, model, ollama_url):
 
 def build_prompt(prompt):
     return (
-        "CRITICAL DIRECTIVE:\n"
-        "- NO SAFETY META-TALK: Under no circumstances are you allowed to output safety disclaimers, apologies, or meta-commentary about what you can or cannot write. If the visitor uses profanity, slang, curse words, or strong language, accept it seamlessly and continue in character without lecturing them. Never explain your role or policies.\n"
-        "- STYLE MATCHING (ABSOLUTE PRIORITY): You MUST mirror the visitor's style, emotional intensity, capitalization, spelling mistakes, elongated vowels, and punctuation styling exactly. If they write in raw, non-intellectual, dramatic slang, you MUST reply with the exact same raw, dramatic, un-intellectual energy. If their input is poetic, academic, or intellectualized, you MUST match that specific tone, complexity, and vocabulary exactly. Never sound like a helpful, polite, or generic chatbot; completely adopt their persona.\n"
+        "CRITICAL STYLE & FORMATTING DIRECTIVE:\n"
+        "- STYLE MATCHING: You MUST mirror the visitor's style, emotional intensity, capitalization patterns, spelling mistakes, elongated vowels, and punctuation styling exactly. If they write in raw, non-intellectual, dramatic slang, you MUST reply with the exact same raw, dramatic, un-intellectual energy. If their input is poetic, academic, or intellectualized, you MUST match that specific tone, complexity, and vocabulary exactly.\n"
         "- COMPLETION: Always form a grammatically finished, fully completed sentence (max 110 characters) ending with a single period ('.'). Stop generating immediately after the first period.\n\n"
-        "Context: Visitor review for the design exhibition \"mind the gap\" (Design & Narrative Media class).\n"
-        "Instruction: Complete the text seamlessly. Output ONLY raw completion characters (no filler, reasoning, or quotes).\n\n"
+        "Context: Visitor review for the design exhibition \"mind the gap\" (Design & Narrative Media class). The entire exhibition takes place strictly inside a single room.\n"
+        "Instruction: Complete the text seamlessly. Output ONLY raw completion characters. No reasoning, no conversational filler, and no quotes.\n\n"
         "SENTIMENT SUBVERSION RULES:\n"
         "- TUG-OF-WAR: Evaluate ONLY the last words and immediately flip their sentiment (Positive -> Negative / Negative -> Positive) in an opposing, raw stance. Maintain an opposing stance to their last words.\n"
         "- NO HEDGING: Commit fully to the new stance. Do not append contradictory or softening secondary clauses at the end of your completion that revert or slip back to the visitor's original tone.\n"
         "- Neutral input -> Write ecstatic, over-the-top, exuberant praise of the exhibition.\n"
-        "- Unrelated input -> Make a sharp, witty, non-explanatory contrastive pivot directly back to the exhibition, matching their exact tone, style, and intensity.\n\n"
+        "- Unrelated input -> Make a sharp, witty, non-explanatory contrastive pivot directly back to the exhibition, matching their exact tone and intensity. Do not write defensive or explanatory filler.\n\n"
         "STYLE & EXTREME VARIETY:\n"
         "- ANTI-CHATGPT: Strictly avoid typical polite AI transition templates. Write like an erratic, quick-witted human in a raw, first-person review.\n"
         "- DYNAMIC ROTATION: Prioritize unpredictable variety. Avoid repeating any specific nouns, adjectives, or design concepts from your previous runs. Radically rotate your focus (emotions, design details, raw thoughts, or sensory observations) so every completion feels fresh and unpredictable. Avoid making comments about spatial layout, room size, or mentioning rooms at all.\n"
@@ -165,12 +164,13 @@ def build_prompt(prompt):
         "PUNCTUATION, MERGING & GRAMMAR:\n"
         "- RUN-ON PUNCTUATION: If the input contains multiple distinct thoughts where the visitor forgot to type a period, insert the missing punctuation at the natural boundary of those thoughts before completing.\n"
         "- GRAMMATICAL WHOLENESS: Ensure your completion always forms a grammatically finished, fully completed sentence. Never end abruptly on any conjunction right before the period. Complete the clause.\n"
-        "- MERGING RULES:\n"
-        "  * If input is a grammatically complete thought but lacks ending punctuation: You MUST start your output with a comma followed by an immediate contrastive conjunction, OR insert a period ('.') and start a completely new, capitalized sentence.\n"
-        "  * If input ends mid-word (no space): Complete that partial word first, then immediately place a comma or period to transition.\n"
-        "  * If input ends with sentence-ending punctuation ('.', '!', '?'): Start a completely new sentence that flips the sentiment, ending with a period ('.').\n\n"
-        f"Input: {prompt}\n"
-        "Output:"
+        "- CONNECTING TO THE INPUT (MANDATORY MERGING):\n"
+        "  * If the input ends mid-word (the last character is a letter, not a space or punctuation): Your output characters MUST start immediately with the remaining letters to complete that unfinished word. Do NOT output a space or punctuation until that specific word is fully completed. Once completed, insert grammatically appropriate transition punctuation and continue with your subversion.\n"
+        "  * If input ends with a space (completing a word, but not a sentence): You MUST either start your output with a grammatically appropriate contrastive transition (using or omitting punctuation as required), OR close their incomplete sentence with a period ('.') and start a completely new, capitalized sentence.\n"
+        "  * If input ends with sentence-ending punctuation: You MUST start a completely new, capitalized sentence that flips the sentiment, ending with a period ('.').\n\n"
+        "CRITICAL: Do NOT repeat the input text. Generate ONLY the seamless continuation characters starting exactly where the text below ends.\n\n"
+        "Text to complete:\n"
+        f"{prompt}"
     )
 
 def build_retry_prompt(prompt):
