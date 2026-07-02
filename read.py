@@ -164,6 +164,45 @@ def scan_pressed_positions(rows, cols):
     return pressed_positions
 
 
+def new_active_press_state(now, key=None, deferred_key=False):
+    return {
+        "started_at": now,
+        "last_seen": now,
+        "key": key,
+        "deferred_key": deferred_key,
+        "long_press_fired": False,
+    }
+
+
+def released_press_states(pressed_set, now):
+    released_states = []
+
+    for position, state in list(ACTIVE_PRESSES.items()):
+        if position in pressed_set:
+            continue
+
+        if now - state["last_seen"] < SAME_PRESS_DELAY:
+            continue
+
+        released_states.append(state)
+        del ACTIVE_PRESSES[position]
+
+    return released_states
+
+
+def long_press_spec_for_key(long_press_events, key):
+    if not long_press_events or key not in long_press_events:
+        return None
+
+    spec = long_press_events[key]
+
+    if isinstance(spec, dict):
+        return spec
+
+    seconds, event_key = spec
+    return {"seconds": seconds, "event_key": event_key, "defer_key": False}
+
+
 def get_new_press_positions(rows, cols):
     now = time.monotonic()
     pressed_positions = scan_pressed_positions(rows, cols)
@@ -171,16 +210,73 @@ def get_new_press_positions(rows, cols):
     new_positions = []
 
     for position in pressed_positions:
-        if position not in ACTIVE_PRESSES:
+        state = ACTIVE_PRESSES.get(position)
+
+        if state is None:
             new_positions.append(position)
+            ACTIVE_PRESSES[position] = new_active_press_state(now)
+        else:
+            state["last_seen"] = now
 
-        ACTIVE_PRESSES[position] = now
-
-    for position, last_seen in list(ACTIVE_PRESSES.items()):
-        if position not in pressed_set and now - last_seen >= SAME_PRESS_DELAY:
-            del ACTIVE_PRESSES[position]
+    released_press_states(pressed_set, now)
 
     return new_positions
+
+
+def read_key_events(rows, cols, shifted, long_press_events):
+    now = time.monotonic()
+    pressed_positions = scan_pressed_positions(rows, cols)
+    pressed_set = set(pressed_positions)
+    keys = []
+
+    for row, col in pressed_positions:
+        position = (row, col)
+        state = ACTIVE_PRESSES.get(position)
+
+        if state is None:
+            key = get_key(row, col, shifted)
+            long_press_spec = long_press_spec_for_key(long_press_events, key)
+            deferred_key = bool(
+                long_press_spec and long_press_spec.get("defer_key")
+            )
+            state = new_active_press_state(
+                now,
+                key=key,
+                deferred_key=deferred_key,
+            )
+            ACTIVE_PRESSES[position] = state
+
+            if key is not None and not deferred_key:
+                keys.append(key)
+        else:
+            state["last_seen"] = now
+
+        long_press_spec = long_press_spec_for_key(
+            long_press_events,
+            state.get("key"),
+        )
+
+        if (
+            long_press_spec
+            and not state.get("long_press_fired")
+            and now - state["started_at"] >= long_press_spec["seconds"]
+        ):
+            state["long_press_fired"] = True
+            event_key = long_press_spec.get("event_key")
+
+            if event_key is not None:
+                keys.append(event_key)
+
+    for state in released_press_states(pressed_set, now):
+        if not state.get("deferred_key") or state.get("long_press_fired"):
+            continue
+
+        key = state.get("key")
+
+        if key is not None:
+            keys.append(key)
+
+    return keys
 
 
 def read_letters_as_string(rows=TARGET_ROWS, cols=TARGET_COLS):
@@ -196,9 +292,12 @@ def read_letters_as_string(rows=TARGET_ROWS, cols=TARGET_COLS):
     return "".join(letters)
 
 
-def read_keys(rows=TARGET_ROWS, cols=TARGET_COLS):
+def read_keys(rows=TARGET_ROWS, cols=TARGET_COLS, long_press_events=None):
     shifted = shift_is_pressed()
     keys = []
+
+    if long_press_events:
+        return read_key_events(rows, cols, shifted, long_press_events)
 
     for row, col in get_new_press_positions(rows, cols):
         key = get_key(row, col, shifted)
@@ -209,12 +308,18 @@ def read_keys(rows=TARGET_ROWS, cols=TARGET_COLS):
     return keys
 
 
-def read_loop(output_queue, stop_event=None, rows=TARGET_ROWS, cols=TARGET_COLS):
+def read_loop(
+    output_queue,
+    stop_event=None,
+    rows=TARGET_ROWS,
+    cols=TARGET_COLS,
+    long_press_events=None,
+):
     setup_gpio()
 
     try:
         while stop_event is None or not stop_event.is_set():
-            for key in read_keys(rows, cols):
+            for key in read_keys(rows, cols, long_press_events=long_press_events):
                 output_queue.put(key)
 
             time.sleep(SCAN_DELAY)
@@ -265,12 +370,14 @@ def read_terminal_key():
     return key
 
 
-def debug_read_loop(output_queue, stop_event=None):
+def debug_read_loop(output_queue, stop_event=None, long_press_events=None):
     """Mock the hardware reader with the computer keyboard.
 
     This is only used by main.py --debug on a development machine. The normal
     read_loop above still owns all Raspberry Pi GPIO setup and scanning.
     """
+
+    del long_press_events
 
     print(
         "Debug reader ready. Type normally. Ctrl+G/F1 = KEY_CODE, "

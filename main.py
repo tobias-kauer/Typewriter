@@ -32,7 +32,18 @@ TIMED_AUTOCOMPLETE_IDLE_RULES = (
     (500, 1.0),
     (750, 0.5),
 )
-TIMED_SESSION_END_IDLE_SECONDS = 12.0
+EASTER_EGG_TRIGGER_KEY = "0"
+EASTER_EGG_EVENT_KEY = "KEY_EASTER_EGG"
+EASTER_EGG_HOLD_SECONDS = 5.0
+EASTER_EGG_TEXT = "Test "
+EASTER_EGG_LONG_PRESS_EVENTS = {
+    EASTER_EGG_TRIGGER_KEY: {
+        "seconds": EASTER_EGG_HOLD_SECONDS,
+        "event_key": EASTER_EGG_EVENT_KEY,
+        "defer_key": True,
+    },
+}
+TIMED_SESSION_END_IDLE_SECONDS = 8.0
 
 RESET = "\033[0m"
 BOLD = "\033[1m"
@@ -114,6 +125,12 @@ class TerminalTextDisplay:
         with self.lock:
             self._append_text("generated", chunk)
             self._log("AUTOCOMPLETE OUT", repr(chunk), AUTOCOMPLETE_COLOR)
+            self._render_text()
+
+    def easter_egg_out(self, text):
+        with self.lock:
+            self._append_text("generated", text)
+            self._log("EASTER EGG", repr(text), AUTOCOMPLETE_COLOR)
             self._render_text()
 
     def autocomplete_error(self, error):
@@ -551,13 +568,19 @@ def start_autocomplete_thread(
     return thread
 
 
-def start_reader_thread(read_queue, stop_event, debug=False):
+def start_reader_thread(
+    read_queue,
+    stop_event,
+    debug=False,
+    long_press_events=None,
+):
     # In debug mode the reader is mocked by read.debug_read_loop, so the Mac
     # keyboard feeds the same queue that the Raspberry Pi matrix normally feeds.
     target = read.debug_read_loop if debug else read.read_loop
     thread = threading.Thread(
         target=target,
         args=(read_queue, stop_event),
+        kwargs={"long_press_events": long_press_events},
         name="keyboard-reader",
         daemon=True,
     )
@@ -613,6 +636,7 @@ def run_autocomplete_pipeline(
     session_archive=None,
     first_session_number=1,
     session_archive_file=SESSION_ARCHIVE_FILE,
+    easter_egg_enabled=False,
 ):
     prompt_buffer = []
     prompt_buffer_lock = threading.Lock()
@@ -739,6 +763,35 @@ def run_autocomplete_pipeline(
             debug_display.session_start(current_session_number, start_text)
         else:
             print(f"SESSION: start {current_session_number}", flush=True)
+
+    def trigger_easter_egg():
+        nonlocal session_written_chars
+        nonlocal last_user_write_at, last_autocomplete_written_at
+        nonlocal waiting_for_autocomplete_write
+        nonlocal user_wrote_since_last_autocomplete
+
+        if autocomplete_thread is not None:
+            stop_autocomplete("easter egg")
+
+        enqueue_write_output(write_queue, EASTER_EGG_TEXT)
+
+        with prompt_buffer_lock:
+            append_prompt_text(prompt_buffer, EASTER_EGG_TEXT)
+            session_written_chars += count_written_text_chars(EASTER_EGG_TEXT)
+
+        last_user_write_at = None
+        last_autocomplete_written_at = None
+        waiting_for_autocomplete_write = False
+        user_wrote_since_last_autocomplete = False
+        update_display_char_count()
+
+        if debug_display is not None:
+            debug_display.easter_egg_out(EASTER_EGG_TEXT)
+        else:
+            print(
+                f"EASTER EGG: wrote {EASTER_EGG_TEXT!r}",
+                flush=True,
+            )
 
     def note_user_write(key):
         nonlocal session_written_chars, last_user_write_at
@@ -897,6 +950,10 @@ def run_autocomplete_pipeline(
                 else:
                     print(f"READ: {key!r}", flush=True)
 
+                if easter_egg_enabled and key == EASTER_EGG_EVENT_KEY:
+                    trigger_easter_egg()
+                    continue
+
                 if timed_enabled and is_manual_autocomplete_key(key):
                     if debug_display is not None:
                         debug_display.autocomplete_status(
@@ -956,6 +1013,7 @@ def parse_args():
     )
     parser.add_argument(
         "--sessions",
+        "--session",
         action="store_true",
         help="Session loop for autocomplete mode",
     )
@@ -983,6 +1041,7 @@ def main():
     terminal_display = TerminalTextDisplay() if args.debug or args.autocomplete else None
     reader_thread = None
     writer_thread = None
+    easter_egg_enabled = args.autocomplete and args.sessions and args.timed
 
     try:
         print("Main pipeline running. Press Ctrl+C to stop.", flush=True)
@@ -1044,7 +1103,14 @@ def main():
                     flush=True,
                 )
 
-        reader_thread = start_reader_thread(read_queue, stop_event, debug=args.debug)
+        reader_thread = start_reader_thread(
+            read_queue,
+            stop_event,
+            debug=args.debug,
+            long_press_events=(
+                EASTER_EGG_LONG_PRESS_EVENTS if easter_egg_enabled else None
+            ),
+        )
         writer_thread = start_writer_thread(
             write_queue,
             stop_event,
@@ -1077,6 +1143,7 @@ def main():
                 timed_enabled=args.timed,
                 session_archive=session_archive,
                 first_session_number=first_session_number,
+                easter_egg_enabled=easter_egg_enabled,
             )
         else:
             run_pipeline(
