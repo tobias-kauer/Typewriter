@@ -26,9 +26,9 @@ SESSION_END_TEXTS = (
     "KEY_ENTER KEY_ENTER (Review No. {session} - {timestamp}) KEY_ENTER KEY_ENTER KEY_ENTER KEY_ENTER KEY_ENTER KEY_ENTER KEY_ENTER",
 )
 TIMED_AUTOCOMPLETE_IDLE_RULES = (
-    (1, 3.0),
-    (50, 3.0),
-    (200, 2.0),
+    (1, 2.0),
+    (50, 2.0),
+    (200, 1.0),
     (500, 1.0),
     (750, 0.5),
 )
