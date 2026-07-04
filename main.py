@@ -35,7 +35,7 @@ TIMED_AUTOCOMPLETE_IDLE_RULES = (
 EASTER_EGG_TRIGGER_KEY = "0"
 EASTER_EGG_EVENT_KEY = "KEY_EASTER_EGG"
 EASTER_EGG_HOLD_SECONDS = 5.0
-EASTER_EGG_TEXT = "Test "
+EASTER_EGG_TEXT = "Hi Janaina KEY_ENTER KEY_ENTER Danke für das tolle Semester. Es hat mir ganz großen Spaß gemacht mit dir zusammen zu arbeiten, Musik auszutauschen und aufzulegen! KEY_ENTER Hab mich immer sehr auf Mittwoch gefreut! KEY_ENTER KEY_ENTER Genieß deinen Sommer in Vietnam und San Francisco!KEY_ENTER Würde mich freuen wenn wir uns mal hören wenn ich in China bin.KEY_ENTER KEY_ENTER Du fehlst mir jetzt schon! KEY_ENTER KEY_ENTER Tobi KEY_ENTER KEY_ENTER KEY_ENTER "
 EASTER_EGG_LONG_PRESS_EVENTS = {
     EASTER_EGG_TRIGGER_KEY: {
         "seconds": EASTER_EGG_HOLD_SECONDS,
